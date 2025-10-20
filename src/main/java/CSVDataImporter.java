@@ -23,7 +23,7 @@ public class CSVDataImporter {
         String sql = "INSERT INTO users (author_id, author_name, gender, age, followers_count, following_count) " +
                 "VALUES (?, ?, ?, ?, ?, ?)";
 
-        try (BufferedReader reader = new BufferedReader(new FileReader("data/users.csv"));
+        try (BufferedReader reader = new BufferedReader(new FileReader("data/user.csv"));
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             reader.readLine(); // 跳过标题行
