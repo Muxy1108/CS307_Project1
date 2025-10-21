@@ -10,9 +10,9 @@ public class TransactionalDataImporter {
             conn.setAutoCommit(false); // 开启事务
 
             // 按依赖顺序导入
-            CSVDataImporter.importUsers(conn);
-            CSVDataImporter.importRecipes(conn);
-            CSVDataImporter.importReviews(conn);
+            CSVDataImporter.importUsersRobust(conn);
+            CSVDataImporter.importRecipesRobust(conn);
+            CSVDataImporter.importReviewsRobust(conn);
             CSVDataImporter.importFavorites(conn);
             CSVDataImporter.importLikes(conn);
             CSVDataImporter.importFollows(conn);
