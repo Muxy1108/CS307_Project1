@@ -83,8 +83,8 @@ public class UserImporter {
                     "age INTEGER CHECK (age > 0 AND age <= 120), " +
                     "followers_count INTEGER DEFAULT 0, " +
                     "following_count INTEGER DEFAULT 0, " +
-                    "follower_users TEXT, " +
-                    "following_users TEXT" +
+                    "user_followers TEXT, " +
+                    "user_following TEXT" +
                     ")";
             stmt.execute(sql);
             System.out.println("users 表创建完成");
@@ -258,11 +258,11 @@ public class UserImporter {
                 Integer userId = Safety.safeInt(trimmed);
                 if (userId != null) {
                     userIds.add(userId);
-                    System.out.println("【parseUserIds】成功解析: '" + trimmed + "' -> " + userId);
+                   // System.out.println("【parseUserIds】成功解析: '" + trimmed + "' -> " + userId);
                 }
             }
         } catch (Exception e) {
-            System.err.println("解析用户ID失败: " + userData);
+            //System.err.println("解析用户ID失败: " + userData);
         }
         return userIds;
     }
@@ -270,7 +270,7 @@ public class UserImporter {
     public static String getInsertSQLUsers() {
         return """
         INSERT INTO users (
-            author_id, author_name, gender, age, followers_count, following_count, follower_users, following_users) 
+            author_id, author_name, gender, age, followers_count, following_count, user_followers, user_following) 
             VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?
         )
