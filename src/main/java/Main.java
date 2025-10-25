@@ -4,18 +4,33 @@ import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
+        //import recipes and keywords
+//        String RecipecsvPath = "data/recipes.csv";
+//        List<String[]> recipesrows = RecipeKeywordsImporter.ReadRecipeCSV(RecipecsvPath);
+//        try {
+//            //RecipeKeywordsImporter.debugKeywordsData(ecipesrows);
+//            RecipeKeywordsImporter.createRecipeKeywordsTable();
+//            RecipeKeywordsImporter.importRecipeKeywordData(recipesrows);
+//        }catch (Exception e) {
+//            System.err.println("导入失败: " + e.getMessage());
+//            e.printStackTrace();
+//        }
+
 
         //import recipes and keywords
-        String csvPath = "data/recipes.csv";
-        List<String[]> rows = RecipeKeywordsImporter.readCSVWithErrorHandling(csvPath);
+
+        String UsercsvPath = "data/user.csv";
+        List<String[]> userrows = UserImporter.ReadUserCSV(UsercsvPath);
         try {
-            RecipeKeywordsImporter.debugKeywordsData(rows);
-            RecipeKeywordsImporter.createKeywordsTable();
-            RecipeKeywordsImporter.importDataWithKeywordsDebug(rows);
+            UserImporter.createUserTable();
+            UserImporter.importUserData(userrows);
         }catch (Exception e) {
             System.err.println("导入失败: " + e.getMessage());
             e.printStackTrace();
         }
+
+        //import recipes and keywords
+
     }
 
 

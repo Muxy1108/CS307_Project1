@@ -1,7 +1,6 @@
 import com.opencsv.*;
 import java.io.*;
 import java.sql.*;
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,28 +16,7 @@ public class RecipeKeywordsImporter {
     private static final String JDBC_USER = "postgres";
     private static final String JDBC_PASS = "Xieyan2005";
 
-
-    public static void importRecipesAndKeywords(String csvPath) throws Exception {
-        System.out.println("开始导入 recipes 和 keywords 数据...");
-
-        // 先检查原始数据格式
-        checkRawKeywordsFromCSV(csvPath);
-
-        List<String[]> rows = readCSVWithErrorHandling(csvPath);
-
-        if (rows.isEmpty()) {
-            System.err.println("No valid rows found.");
-            return;
-        }
-
-        // 创建 keywords 表
-        createKeywordsTable();
-
-        // 导入数据 - 无批处理版本
-        importDataWithKeywordsNoBatch(rows);
-    }
-
-    public static List<String[]> readCSVWithErrorHandling(String csvPath) {
+    public static List<String[]> ReadRecipeCSV(String csvPath) {
         List<String[]> rows = new ArrayList<>();
 
         System.out.println("开始读取 CSV 文件...");
@@ -57,13 +35,12 @@ public class RecipeKeywordsImporter {
                      .withSkipLines(0)
                      .build()) {
 
-            // 读取头部
             String[] header = reader.readNext();
             if (header == null) {
                 System.err.println("Empty CSV file.");
                 return rows;
             }
-            System.out.println("CSV头部 (" + header.length + "列): " + String.join("|", header));
+            //System.out.println("CSV头部 (" + header.length + "列): " + String.join("|", header));
 
             String[] line;
             int lineCount = 0;
@@ -108,9 +85,7 @@ public class RecipeKeywordsImporter {
         return rows;
     }
 
-
     public static void debugKeywordsData(List<String[]> rows) {
-        //System.out.println("🔍 examine keywords data...");
 
         int totalRows = rows.size();
         int nonEmptyKeywords = 0;
@@ -138,7 +113,7 @@ public class RecipeKeywordsImporter {
         System.out.println("null keywords: " + nullKeywords);
     }
 
-    public static void importDataWithKeywordsDebug(List<String[]> rows) throws Exception {
+    public static void importRecipeKeywordData(List<String[]> rows) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
         AtomicInteger recipesInserted = new AtomicInteger(0);
         AtomicInteger keywordsInserted = new AtomicInteger(0);
@@ -152,9 +127,9 @@ public class RecipeKeywordsImporter {
 
         CountDownLatch latch = new CountDownLatch(partitions.size());
 
-        System.out.println("开始并行导入，分区数: " + partitions.size());
+        System.out.println("开始并行导入recipes，分区数: " + partitions.size());
 
-        for (int i = 0; i < partitions.size(); i++) {
+        for (int i = 0; i < partitions.size(); i ++) {
             final int partitionIndex = i;
             List<String[]> batch = partitions.get(i);
 
@@ -175,11 +150,9 @@ public class RecipeKeywordsImporter {
                             Integer recipeId = Safety.safeInt(c.get(0));
 
                             if (recipeId == null) {
-                                batchSkipped++;
+                                batchSkipped ++;
                                 continue;
                             }
-
-
                             fillPreparedStatementWithoutKeywords(recipeStmt, c);
                             int recipeResult = recipeStmt.executeUpdate();
 
@@ -247,162 +220,6 @@ public class RecipeKeywordsImporter {
         verifyKeywordsImport();
     }
 
-    public static void importDataWithKeywordsNoBatch(List<String[]> rows) throws Exception {
-        ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
-        AtomicInteger recipesInserted = new AtomicInteger(0);
-        AtomicInteger keywordsInserted = new AtomicInteger(0);
-        AtomicInteger skipped = new AtomicInteger(0);
-
-        int totalRows = rows.size();
-        int rowsPerPartition = Math.max(1000, totalRows / THREAD_COUNT);
-
-        List<List<String[]>> partitions = new ArrayList<>();
-        for (int i = 0; i < totalRows; i += rowsPerPartition) {
-            partitions.add(rows.subList(i, Math.min(i + rowsPerPartition, totalRows)));
-        }
-
-        CountDownLatch latch = new CountDownLatch(partitions.size());
-
-        System.out.println("开始并行导入，分区数: " + partitions.size() + ", 每分区约 " + rowsPerPartition + " 行");
-
-        for (int i = 0; i < partitions.size(); i++) {
-            final int partitionIndex = i;
-            List<String[]> batch = partitions.get(i);
-
-            pool.submit(() -> {
-                int batchRecipes = 0;
-                int batchKeywords = 0;
-                int batchSkipped = 0;
-
-                try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-                     PreparedStatement recipeStmt = conn.prepareStatement(getInsertSQLWithoutKeywords());
-                     PreparedStatement keywordStmt = conn.prepareStatement(
-                             "INSERT INTO keywords (recipe_id, keyword_text) VALUES (?, ?)")) {
-
-                    for (String[] cols : batch) {
-                        try {
-                            List<String> c = Safety.padToExpected(cols);
-                            Integer recipeId = Safety.safeInt(c.get(0));
-
-                            if (recipeId == null) {
-                                batchSkipped++;
-                                continue;
-                            }
-
-
-                            fillPreparedStatementWithoutKeywords(recipeStmt, c);
-                            int recipeResult = recipeStmt.executeUpdate();
-
-                            if (recipeResult > 0) {
-                                batchRecipes++;
-
-                                String rawKeywords = c.get(10);
-                                if (rawKeywords != null && !rawKeywords.trim().isEmpty()) {
-                                    List<String> keywords = parseCSVKeywords(rawKeywords);
-
-                                    for (String keyword : keywords) {
-                                        if (keyword.length() > 255) {
-                                            keyword = keyword.substring(0, 255);
-                                        }
-
-                                        keywordStmt.setInt(1, recipeId);
-                                        keywordStmt.setString(2, keyword);
-                                        int keywordResult = keywordStmt.executeUpdate();
-
-                                        if (keywordResult > 0) {
-                                            batchKeywords++;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (batchRecipes > 0 && batchRecipes % 100 == 0) {
-                                System.out.println("分区 " + partitionIndex + " 进度: " +
-                                        "recipes=" + batchRecipes + ", " +
-                                        "keywords=" + batchKeywords);
-                            }
-
-                        } catch (Exception ex) {
-                            batchSkipped++;
-
-                            System.err.println("插入失败: " + ex.getMessage());
-                        }
-                    }
-
-                } catch (Exception e) {
-                    System.err.println("分区 " + partitionIndex + " 数据库连接失败: " + e.getMessage());
-                    batchSkipped = batch.size();
-                } finally {
-                    recipesInserted.addAndGet(batchRecipes);
-                    keywordsInserted.addAndGet(batchKeywords);
-                    skipped.addAndGet(batchSkipped);
-
-                    System.out.println("分区 " + partitionIndex + " 完成: " +
-                            "recipes = " + batchRecipes + ", " +
-                            "keywords = " + batchKeywords + ", " +
-                            "跳过=" + batchSkipped);
-
-                    latch.countDown();
-                }
-            });
-        }
-
-        latch.await();
-        pool.shutdown();
-
-        System.out.println("导入完成. " +
-                "recipes = " + recipesInserted.get() + ", " +
-                "keywords = " + keywordsInserted.get() + ", " +
-                "skipped=" + skipped.get());
-
-        verifyKeywordsImport();
-    }
-
-    public static void checkRawKeywordsFromCSV(String csvPath) {
-
-        try (CSVReader reader = new CSVReaderBuilder(new FileReader(csvPath))
-                .withCSVParser(new CSVParserBuilder().build())
-                .build()) {
-
-            String[] header = reader.readNext();
-            int keywordsIndex = -1;
-            for (int i = 0; i < header.length; i++) {
-                if ("keywords".equalsIgnoreCase(header[i])) {
-                    keywordsIndex = i;
-                    break;
-                }
-            }
-
-            if (keywordsIndex == -1) {
-                System.err.println("在 CSV 中找不到 keywords 列");
-                return;
-            }
-
-            System.out.println("keywords 列索引: " + keywordsIndex);
-
-            String[] line;
-            int lineNum = 0;
-            while ((line = reader.readNext()) != null && lineNum < 20) {
-                lineNum++;
-                if (line.length > keywordsIndex) {
-                    String rawKeywords = line[keywordsIndex];
-                    System.out.println("行 " + lineNum + " - 原始 keywords: " + rawKeywords);
-
-                    if (rawKeywords != null && !rawKeywords.trim().isEmpty()) {
-                        List<String> parsed = parseCSVKeywords(rawKeywords);
-                        System.out.println("解析结果: " + parsed);
-                        System.out.println("数量: " + parsed.size());
-                    }
-                    System.out.println("---");
-                }
-            }
-
-        } catch (Exception e) {
-            System.err.println("检查 CSV keywords 失败: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
     public static List<String> parseCSVKeywords(String rawKeywords) {
         List<String> keywords = new ArrayList<>();
 
@@ -413,9 +230,6 @@ public class RecipeKeywordsImporter {
         String trimmed = rawKeywords.trim();
 
         try {
-
-            System.out.println("解析 keywords: '" + trimmed + "'");
-
 
             if (trimmed.startsWith("c(") && trimmed.endsWith(")")) {
                 String content = trimmed.substring(2, trimmed.length() - 1);
@@ -511,22 +325,57 @@ public class RecipeKeywordsImporter {
         return items;
     }
 
-    public static void createKeywordsTable() throws SQLException {
+    public static void createRecipeKeywordsTable() throws SQLException {
+
         try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
              Statement stmt = conn.createStatement()) {
-
             String sql = "CREATE TABLE IF NOT EXISTS keywords (" +
-                    "keyword_id SERIAL PRIMARY KEY, " +
-                    "recipe_id INTEGER NOT NULL, " +
+                    "recipe_id  int primary key not null, " +
+                    "recipe_name           varchar(200)    not null, " +
                     "keyword_text TEXT, " +
                     "FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id) ON DELETE CASCADE" +
                     ")";
             stmt.execute(sql);
-
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_keywords_recipe_id ON keywords(recipe_id)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_keywords_keyword_text ON keywords(keyword_text)");
-
             System.out.println("keywords 表创建完成");
+        }
+
+        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+            Statement stmt = conn.createStatement()) {
+            String sql = "CREATE TABLE IF NOT EXISTS recipes (" +
+                    "recipe_id INTEGER PRIMARY KEY NOT NULL, " +
+                    "recipe_name VARCHAR(200) NOT NULL, " +
+                    "author_id INTEGER, " +
+                    "author_name VARCHAR(100), " +
+                    "cook_time VARCHAR(50), " +
+                    "prep_time VARCHAR(50), " +
+                    "total_time VARCHAR(50), " +
+                    "date_published DATE, " +
+                    "description TEXT, " +
+                    "recipe_category VARCHAR(100), " +
+                    "keywords TEXT, " +
+                    "recipe_ingredient TEXT, " +
+                    "aggregated_rating NUMERIC(3,1) CHECK (aggregated_rating BETWEEN 0 AND 5), " +
+                    "review_count INTEGER DEFAULT 0, " +
+                    "calories INTEGER CHECK (calories >= 0), " +
+                    "fat_content INTEGER DEFAULT 0, " +
+                    "saturated_fat_content INTEGER DEFAULT 0, " +
+                    "cholesterol_content INTEGER DEFAULT 0, " +
+                    "sodium_content INTEGER DEFAULT 0, " +
+                    "carbohydrate_content INTEGER DEFAULT 0, " +
+                    "fiber_content INTEGER DEFAULT 0, " +
+                    "sugar_content INTEGER DEFAULT 0, " +
+                    "protein_content INTEGER DEFAULT 0, " +
+                    "recipe_servings INTEGER CHECK (recipe_servings > 0), " +
+                    "recipe_yield VARCHAR(100), " +
+                    "recipe_instructions TEXT, " +
+                    "favorite_users TEXT, " +
+                    "FOREIGN KEY (author_id) REFERENCES users(author_id), " +
+                    "FOREIGN KEY (author_name) REFERENCES users(author_name)" +
+                    ")";
+            stmt.execute(sql);
+            System.out.println("recipes 表创建完成");
         }
     }
 
