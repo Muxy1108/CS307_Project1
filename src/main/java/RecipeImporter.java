@@ -5,6 +5,10 @@ import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
+import java.util.concurrent.*;  // 添加这个导入
+import java.util.concurrent.atomic.AtomicInteger;  // 添加这个导入
+import java.util.stream.Collectors;
+
 
 public class RecipeImporter {
     private static final int EXPECTED_COLUMNS = 27;
@@ -17,9 +21,16 @@ public class RecipeImporter {
                 "jdbc:postgresql://localhost:5432/postgres",
                 "postgres", "Xieyan2005")) {
 
-            conn.setAutoCommit(false);
+            System.out.println("✅ 已连接到数据库: " + conn.getMetaData().getDatabaseProductName());
+            System.out.println("📊 当前数据库: " + conn.getCatalog());
+
+            conn.setAutoCommit(true);
+
+
+
             importRecipesParallel(conn, csvPath);
         } catch (Exception e) {
+            System.err.println("❌ 导入失败: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -28,12 +39,17 @@ public class RecipeImporter {
     private static void importRecipesParallel(Connection conn, String csvPath) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
 
+        // 使用线程安全的计数器
+        AtomicInteger inserted = new AtomicInteger(0);
+        AtomicInteger skipped = new AtomicInteger(0);
+
         List<String[]> rows = new ArrayList<>();
         try (CSVReader reader = new CSVReaderBuilder(new FileReader(csvPath))
                 .withCSVParser(new CSVParserBuilder()
                         .withSeparator(',')
                         .withQuoteChar('"')
-                        .withStrictQuotes(false)
+                        .withStrictQuotes(false)  // ❌ 非严格引号
+                        .withIgnoreQuotations(true) // 忽略内部异常引号
                         .build())
                 .build()) {
 
@@ -42,19 +58,12 @@ public class RecipeImporter {
                 System.err.println("❌ Empty CSV file.");
                 return;
             }
-
             System.out.println("Header: " + String.join(",", header));
 
             String[] line;
-            while (true) {
-                try {
-                    line = reader.readNext();
-                    if (line == null) break;
-                    if (line.length < EXPECTED_COLUMNS) continue;
+            while ((line = reader.readNext()) != null) {
+                if (line.length >= EXPECTED_COLUMNS) {
                     rows.add(line);
-                } catch (com.opencsv.exceptions.CsvMalformedLineException ex) {
-                    // skip malformed line, but continue import
-                    System.err.println("⚠️ Skipping malformed line: " + ex.getMessage());
                 }
             }
         }
@@ -64,6 +73,7 @@ public class RecipeImporter {
             return;
         }
 
+        // 分区
         List<List<String[]>> partitions = new ArrayList<>();
         for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
             partitions.add(rows.subList(i, Math.min(i + BATCH_SIZE, rows.size())));
@@ -71,33 +81,36 @@ public class RecipeImporter {
 
         CountDownLatch latch = new CountDownLatch(partitions.size());
         PrintWriter errorLog = new PrintWriter(new FileWriter("import_errors.log", true));
-        int[] inserted = {0};
-        int[] skipped = {0};
 
         for (List<String[]> batch : partitions) {
             pool.submit(() -> {
-                try (PreparedStatement ps = conn.prepareStatement(getInsertSQL())) {
+                try (Connection threadConn = DriverManager.getConnection(
+                        "jdbc:postgresql://localhost:5432/postgres", "postgres", "Xieyan2005");
+                     PreparedStatement ps = threadConn.prepareStatement(getInsertSQL())) {
+
+                    threadConn.setAutoCommit(true); // 每行直接提交
+
                     for (String[] cols : batch) {
                         try {
                             List<String> c = padToExpected(cols);
                             fillPreparedStatement(ps, c);
-                            ps.addBatch();
-                            inserted[0]++;
+                            ps.executeUpdate(); // ✅ 每行直接执行
+                            inserted.incrementAndGet(); // 线程安全
                         } catch (Exception ex) {
                             synchronized (errorLog) {
                                 errorLog.println("⚠️ Parse error: " + Arrays.toString(cols));
-                                ex.printStackTrace(errorLog);
                             }
-                            skipped[0]++;
+                            skipped.incrementAndGet();
                         }
                     }
-                    synchronized (conn) {
-                        ps.executeBatch();
-                        conn.commit();
-                    }
+
                 } catch (Exception e) {
-                    synchronized (errorLog) { e.printStackTrace(errorLog); }
-                } finally { latch.countDown(); }
+                    synchronized (errorLog) {
+                        errorLog.println("❌ Thread error: " + e.getMessage());
+                    }
+                } finally {
+                    latch.countDown();
+                }
             });
         }
 
@@ -105,9 +118,9 @@ public class RecipeImporter {
         pool.shutdown();
         errorLog.close();
 
-        System.out.println("✅ Done. inserted=" + inserted[0] + ", skippedParse=" + skipped[0]);
-        System.out.println("✅ Import finished.");
+        System.out.println("✅ Done. inserted=" + inserted.get() + ", skippedParse=" + skipped.get());
     }
+
 
     /** ---------------- SQL + MAPPERS ---------------- */
     private static String getInsertSQL() {
