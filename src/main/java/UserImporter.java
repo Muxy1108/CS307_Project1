@@ -136,7 +136,6 @@ public class UserImporter {
                 "following = " + followingInserted.get() + ", " +
                 "skipped = " + skipped.get());
 
-        //verifyUsersImport();
     }
 
     public static void importUserRelated(List<String[]> rows) throws Exception {
@@ -250,20 +249,6 @@ public class UserImporter {
         ps.setString(7, Safety.safeStr(c.get(6)));              // follower_users
         ps.setString(8, Safety.safeStr(c.get(7)));              // following_users
 
-    }
-
-
-    private static void verifyUsersImport() throws SQLException {
-        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-             Statement stmt = conn.createStatement()) {
-
-            System.out.println("验证导入结果:");
-
-            ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM users");
-            if (rs.next()) {
-                System.out.println("users 表记录数: " + rs.getInt(1));
-            }
-        }
     }
 
     public static void dropUserColumns() throws SQLException{

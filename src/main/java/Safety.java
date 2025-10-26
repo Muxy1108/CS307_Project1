@@ -6,13 +6,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class Safety {
-    private static final int BATCH_SIZE = 1000;
-    private static final int THREAD_COUNT = 6;
-    private static final String JDBC_URL = "jdbc:postgresql://localhost:5432/postgres";
-    private static final String JDBC_USER = "postgres";
-    private static final String JDBC_PASS = "Xieyan2005";
-
-
     public static String safeStr(String s) {
         if (s == null) return null;
         s = s.trim();
@@ -169,43 +162,4 @@ public class Safety {
 
         return items;
     }
-
-    public static List<String> parseQuoted(String content) {
-        List<String> items = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean inQuotes = false;
-        char quoteChar = '"';
-
-        for (int i = 0; i < content.length(); i++) {
-            char c = content.charAt(i);
-
-            if ((c == '"' || c == '\'') && (i == 0 || content.charAt(i-1) != '\\')) {
-                if (!inQuotes) {
-                    inQuotes = true;
-                    quoteChar = c;
-                } else if (c == quoteChar) {
-                    inQuotes = false;
-                }
-            } else if (c == ',' && !inQuotes) {
-
-                String item = current.toString().trim();
-                if (!item.isEmpty()) {
-                    items.add(item);
-                }
-                current.setLength(0);
-            } else {
-                current.append(c);
-            }
-        }
-
-        String lastItem = current.toString().trim();
-        if (!lastItem.isEmpty()) {
-            items.add(lastItem);
-        }
-
-        return items;
-    }
-
-
-
 }
