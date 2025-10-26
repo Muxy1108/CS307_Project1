@@ -4,32 +4,42 @@ import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
-        //import recipes and keywords
-//        String RecipecsvPath = "data/recipes.csv";
-//        List<String[]> recipesrows = RecipeKeywordsImporter.ReadRecipeCSV(RecipecsvPath);
+
+        //import users and user_follower/following
+
+//        String UsercsvPath = "data/user.csv";
+//        List<String[]> userrows = CSVReader.ReadCSV(UsercsvPath,8);
 //        try {
-//            //RecipeKeywordsImporter.debugKeywordsData(ecipesrows);
-//            RecipeKeywordsImporter.createRecipeKeywordsTable();
-//            RecipeKeywordsImporter.importRecipeKeywordData(recipesrows);
+//            UserImporter.createUserTable();
+//            UserImporter.importUserData(userrows);
+//            UserImporter.importUserFollows(userrows);
+//            UserImporter.dropUserColumns();
 //        }catch (Exception e) {
-//            System.err.println("导入失败: " + e.getMessage());
+//            System.err.println("users 导入失败: " + e.getMessage());
 //            e.printStackTrace();
 //        }
 
-
         //import recipes and keywords
-
-        String UsercsvPath = "data/user.csv";
-        List<String[]> userrows = UserImporter.ReadUserCSV(UsercsvPath);
+        String RecipecsvPath = "data/recipes.csv";
+        List<String[]> recipesrows = CSVReader.ReadCSV(RecipecsvPath,27);
         try {
-            UserImporter.createUserTable();
-            UserImporter.importUserData(userrows);
+            RecipeImporter.createRecipeTable();
+            RecipeImporter.importRecipeData(recipesrows);
         }catch (Exception e) {
-            System.err.println("导入失败: " + e.getMessage());
+            System.err.println("recipes 导入失败: " + e.getMessage());
             e.printStackTrace();
         }
 
-        //import recipes and keywords
+        //import reviews
+//        String ReviewscsvPath = "data/reviews.csv";
+//        List<String[]> reviewrows = CSVReader.ReadCSV(ReviewscsvPath,9);
+//        try {
+//            ReviewImporter.createReviewTable();
+//            ReviewImporter.importReviewData(reviewrows);
+//        }catch (Exception e) {
+//            System.err.println("reviews 导入失败: " + e.getMessage());
+//            e.printStackTrace();
+//        }
 
     }
 

@@ -1,13 +1,14 @@
 import com.opencsv.*;
+import com.opencsv.CSVReader;
+
 import java.io.*;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 
-public class RecipeKeywordsImporter {
+public class RecipeImporter {
 
     private static final int EXPECTED_COLUMNS = 27;
     private static final int BATCH_SIZE = 1000;
@@ -16,104 +17,63 @@ public class RecipeKeywordsImporter {
     private static final String JDBC_USER = "postgres";
     private static final String JDBC_PASS = "Xieyan2005";
 
-    public static List<String[]> ReadRecipeCSV(String csvPath) {
-        List<String[]> rows = new ArrayList<>();
 
-        System.out.println("开始读取 CSV 文件...");
+    public static void createRecipeTable() throws SQLException {
 
-        CSVParser parser = new CSVParserBuilder()
-                .withSeparator(',')
-                .withQuoteChar('"')
-                .withEscapeChar('\\')
-                .withIgnoreQuotations(false)
-                .withStrictQuotes(false)
-                .build();
-
-        try (BufferedReader br = new BufferedReader(new FileReader(csvPath));
-             CSVReader reader = new CSVReaderBuilder(br)
-                     .withCSVParser(parser)
-                     .withSkipLines(0)
-                     .build()) {
-
-            String[] header = reader.readNext();
-            if (header == null) {
-                System.err.println("Empty CSV file.");
-                return rows;
-            }
-            //System.out.println("CSV头部 (" + header.length + "列): " + String.join("|", header));
-
-            String[] line;
-            int lineCount = 0;
-            int errorCount = 0;
-
-            while (true) {
-                try {
-                    line = reader.readNext();
-                    if (line == null) break;
-
-                    lineCount++;
-
-                    if (line.length >= EXPECTED_COLUMNS) {
-                        rows.add(line);
-                    } else {
-                        //System.err.println("跳过列数不足的行 " + lineCount + ": " + line.length + " 列");
-                        errorCount++;
-                    }
-
-                    if (lineCount % 10000 == 0) {
-                        System.out.println("已读取行数: " + lineCount + ", 错误: " + errorCount);
-                    }
-
-                } catch (Exception e) {
-                    errorCount++;
-                    //System.err.println("读取行 " + lineCount + " 时出错: " + e.getMessage());
-
-                    /*if (errorCount > 100) {
-                        System.err.println("错误过多，停止读取");
-                        break;
-                    }*/
-                }
-            }
-
-            System.out.println("读取完成: 总行数 = " + lineCount + ", 有效行 = " + rows.size() + ", 错误 = " + errorCount);
-
-        } catch (Exception e) {
-            System.err.println("读取 CSV 文件失败: " + e.getMessage());
-            e.printStackTrace();
+        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+             Statement stmt = conn.createStatement()) {
+            String sql = "CREATE TABLE IF NOT EXISTS recipes (" +
+                    "recipe_id INTEGER PRIMARY KEY NOT NULL, " +
+                    "recipe_name VARCHAR(200) NOT NULL, " +
+                    "author_id INTEGER, " +
+                    "author_name VARCHAR(100), " +
+                    "cook_time VARCHAR(50), " +
+                    "prep_time VARCHAR(50), " +
+                    "total_time VARCHAR(50), " +
+                    "date_published DATE, " +
+                    "description TEXT, " +
+                    "recipe_category VARCHAR(100), " +
+                    "keywords TEXT, " +
+                    "recipe_ingredient TEXT, " +
+                    "aggregated_rating NUMERIC(3,1) CHECK (aggregated_rating BETWEEN 0 AND 5), " +
+                    "review_count INTEGER DEFAULT 0, " +
+                    "calories INTEGER CHECK (calories >= 0), " +
+                    "fat_content INTEGER DEFAULT 0, " +
+                    "saturated_fat_content INTEGER DEFAULT 0, " +
+                    "cholesterol_content INTEGER DEFAULT 0, " +
+                    "sodium_content INTEGER DEFAULT 0, " +
+                    "carbohydrate_content INTEGER DEFAULT 0, " +
+                    "fiber_content INTEGER DEFAULT 0, " +
+                    "sugar_content INTEGER DEFAULT 0, " +
+                    "protein_content INTEGER DEFAULT 0, " +
+                    "recipe_servings INTEGER CHECK (recipe_servings > 0), " +
+                    "recipe_yield VARCHAR(100), " +
+                    "recipe_instructions TEXT, " +
+                    "favorite_users TEXT, " +
+                    "FOREIGN KEY (author_id) REFERENCES users(author_id) " +
+                    //"FOREIGN KEY (author_name) REFERENCES users(author_name)" +
+                    ")";
+            stmt.execute(sql);
+            System.out.println("recipes 表创建完成");
         }
 
-        return rows;
-    }
-
-    public static void debugKeywordsData(List<String[]> rows) {
-
-        int totalRows = rows.size();
-        int nonEmptyKeywords = 0;
-        int emptyKeywords = 0;
-        int nullKeywords = 0;
-
-        for (int i = 0; i < totalRows; i++) {
-            String[] cols = rows.get(i);
-            if (cols.length > 10) {
-                String rawKeywords = cols[10];
-                if (rawKeywords == null) {
-                    nullKeywords++;
-                } else if (rawKeywords.trim().isEmpty()) {
-                    emptyKeywords++;
-                } else {
-                    nonEmptyKeywords++;
-                }
-            }
+        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+             Statement stmt = conn.createStatement()) {
+            String sql = "CREATE TABLE IF NOT EXISTS keywords (" +
+                    "keyword_id SERIAL primary key not null, " +
+                    "recipe_id  INTEGER            not null, " +
+                    "keyword_text TEXT             not null, " +
+                    "FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id) ON DELETE CASCADE" +
+                    ")";
+            stmt.execute(sql);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_keywords_recipe_id ON keywords(recipe_id)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_keywords_keyword_text ON keywords(keyword_text)");
+            System.out.println("keywords 表创建完成");
         }
-
-        System.out.println("Keywords 统计:");
-        System.out.println("总行数: " + totalRows);
-        System.out.println("非空 keywords: " + nonEmptyKeywords);
-        System.out.println("空 keywords(空格而非null): " + emptyKeywords);
-        System.out.println("null keywords: " + nullKeywords);
     }
 
-    public static void importRecipeKeywordData(List<String[]> rows) throws Exception {
+
+    public static void importRecipeData(List<String[]> rows) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
         AtomicInteger recipesInserted = new AtomicInteger(0);
         AtomicInteger keywordsInserted = new AtomicInteger(0);
@@ -165,10 +125,7 @@ public class RecipeKeywordsImporter {
 
                                     List<String> keywords = parseCSVKeywords(rawKeywords);
 
-                                    if (!keywords.isEmpty()) {
-                                        System.out.println("分区 " + partitionIndex + " - Recipe " + recipeId +
-                                                " 找到 " + keywords.size() + " 个 keywords: " + keywords);
-
+                                    if(!keywords.isEmpty()) {
                                         for (String keyword : keywords) {
                                             if (keyword.length() > 255) {
                                                 keyword = keyword.substring(0, 255);
@@ -182,18 +139,14 @@ public class RecipeKeywordsImporter {
                                                 batchKeywords++;
                                             }
                                         }
-                                    } else {
-                                        System.out.println("分区 " + partitionIndex + " - Recipe " + recipeId +
-                                                " 解析 keywords 但结果为空: '" + rawKeywords + "'");
                                     }
                                 }
                             }
                         } catch (Exception ex) {
                             batchSkipped++;
-                            //System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
+                            System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
                         }
                     }
-
                 } catch (Exception e) {
                     System.err.println("分区 " + partitionIndex + " 数据库连接失败: " + e.getMessage());
                     batchSkipped = batch.size();
@@ -202,7 +155,6 @@ public class RecipeKeywordsImporter {
                     keywordsInserted.addAndGet(batchKeywords);
                     skipped.addAndGet(batchSkipped);
                     keywordsProcessed.addAndGet(batchKeywordsProcessed);
-
                     latch.countDown();
                 }
             });
@@ -325,104 +277,51 @@ public class RecipeKeywordsImporter {
         return items;
     }
 
-    public static void createRecipeKeywordsTable() throws SQLException {
-
-        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-             Statement stmt = conn.createStatement()) {
-            String sql = "CREATE TABLE IF NOT EXISTS keywords (" +
-                    "recipe_id  int primary key not null, " +
-                    "recipe_name           varchar(200)    not null, " +
-                    "keyword_text TEXT, " +
-                    "FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id) ON DELETE CASCADE" +
-                    ")";
-            stmt.execute(sql);
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_keywords_recipe_id ON keywords(recipe_id)");
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_keywords_keyword_text ON keywords(keyword_text)");
-            System.out.println("keywords 表创建完成");
-        }
-
-        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-            Statement stmt = conn.createStatement()) {
-            String sql = "CREATE TABLE IF NOT EXISTS recipes (" +
-                    "recipe_id INTEGER PRIMARY KEY NOT NULL, " +
-                    "recipe_name VARCHAR(200) NOT NULL, " +
-                    "author_id INTEGER, " +
-                    "author_name VARCHAR(100), " +
-                    "cook_time VARCHAR(50), " +
-                    "prep_time VARCHAR(50), " +
-                    "total_time VARCHAR(50), " +
-                    "date_published DATE, " +
-                    "description TEXT, " +
-                    "recipe_category VARCHAR(100), " +
-                    "keywords TEXT, " +
-                    "recipe_ingredient TEXT, " +
-                    "aggregated_rating NUMERIC(3,1) CHECK (aggregated_rating BETWEEN 0 AND 5), " +
-                    "review_count INTEGER DEFAULT 0, " +
-                    "calories INTEGER CHECK (calories >= 0), " +
-                    "fat_content INTEGER DEFAULT 0, " +
-                    "saturated_fat_content INTEGER DEFAULT 0, " +
-                    "cholesterol_content INTEGER DEFAULT 0, " +
-                    "sodium_content INTEGER DEFAULT 0, " +
-                    "carbohydrate_content INTEGER DEFAULT 0, " +
-                    "fiber_content INTEGER DEFAULT 0, " +
-                    "sugar_content INTEGER DEFAULT 0, " +
-                    "protein_content INTEGER DEFAULT 0, " +
-                    "recipe_servings INTEGER CHECK (recipe_servings > 0), " +
-                    "recipe_yield VARCHAR(100), " +
-                    "recipe_instructions TEXT, " +
-                    "favorite_users TEXT, " +
-                    "FOREIGN KEY (author_id) REFERENCES users(author_id), " +
-                    "FOREIGN KEY (author_name) REFERENCES users(author_name)" +
-                    ")";
-            stmt.execute(sql);
-            System.out.println("recipes 表创建完成");
-        }
-    }
 
     public static String getInsertSQLWithoutKeywords() {
         return """
         INSERT INTO recipes (
             recipe_id, recipe_name, author_id, author_name, cook_time, prep_time,
-            total_time, date_published, description, recipe_category, 
+            total_time, date_published, description, recipe_category, keywords,
             recipe_ingredient, aggregated_rating, review_count, calories, fat_content,
             saturated_fat_content, cholesterol_content, sodium_content, carbohydrate_content,
             fiber_content, sugar_content, protein_content, recipe_servings, recipe_yield,
             recipe_instructions, favorite_users
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
         ON CONFLICT (recipe_id) DO NOTHING
     """;
     }
 
     public static void fillPreparedStatementWithoutKeywords(PreparedStatement ps, List<String> c) throws SQLException {
-        ps.setInt(1, Safety.safeInt(c.get(0)));
-        ps.setString(2, Safety.safeStr(c.get(1)));
-        ps.setInt(3, Safety.safeInt(c.get(2)));
-        ps.setString(4, Safety.safeStr(c.get(3)));
+        ps.setInt(1, Safety.safeInt(c.get(0))); //recipe_id
+        ps.setString(2, Safety.safeStr(c.get(1))); //recipe_name
+        ps.setInt(3, Safety.safeInt(c.get(2))); //author_id
+        ps.setString(4, Safety.safeStr(c.get(3))); //author_name 删
         ps.setString(5, Safety.safeStr(c.get(4)));
         ps.setString(6, Safety.safeStr(c.get(5)));
         ps.setString(7, Safety.safeStr(c.get(6)));
         ps.setObject(8, Safety.parseTimestamp(c.get(7)));
         ps.setString(9, Safety.safeStr(c.get(8)));
         ps.setString(10, Safety.safeStr(c.get(9)));
-        // 跳过 keywords 列 (索引10)
-        ps.setString(11, Safety.normalizeArray(c.get(11))); // recipe_ingredient
-        ps.setObject(12, Safety.safeDouble(c.get(12)));     // aggregated_rating
-        ps.setObject(13, Safety.safeDouble(c.get(13)));     // review_count
-        ps.setObject(14, Safety.safeDouble(c.get(14)));     // calories
-        ps.setObject(15, Safety.safeDouble(c.get(15)));     // fat_content
-        ps.setObject(16, Safety.safeDouble(c.get(16)));     // saturated_fat_content
-        ps.setObject(17, Safety.safeDouble(c.get(17)));     // cholesterol_content
-        ps.setObject(18, Safety.safeDouble(c.get(18)));     // sodium_content
-        ps.setObject(19, Safety.safeDouble(c.get(19)));     // carbohydrate_content
-        ps.setObject(20, Safety.safeDouble(c.get(20)));     // fiber_content
-        ps.setObject(21, Safety.safeDouble(c.get(21)));     // sugar_content
-        ps.setObject(22, Safety.safeDouble(c.get(22)));     // protein_content
-        ps.setObject(23, Safety.safeDouble(c.get(23)));     // recipe_servings
-        ps.setString(24, Safety.safeStr(c.get(24)));        // recipe_yield
-        ps.setString(25, Safety.safeStr(c.get(25)));        // recipe_instructions
-        ps.setString(26, Safety.normalizeArray(c.get(26))); // favorite_users
+        ps.setString(11, Safety.safeStr(c.get(10)));        // keywords!!!!
+        ps.setString(12, Safety.normalizeArray(c.get(11))); // recipe_ingredient
+        ps.setObject(13, Safety.safeDouble(c.get(12)));     // aggregated_rating
+        ps.setObject(14, Safety.safeDouble(c.get(13)));     // review_count
+        ps.setObject(15, Safety.safeDouble(c.get(14)));     // calories
+        ps.setObject(16, Safety.safeDouble(c.get(15)));     // fat_content
+        ps.setObject(17, Safety.safeDouble(c.get(16)));     // saturated_fat_content
+        ps.setObject(18, Safety.safeDouble(c.get(17)));     // cholesterol_content
+        ps.setObject(19, Safety.safeDouble(c.get(18)));     // sodium_content
+        ps.setObject(20, Safety.safeDouble(c.get(19)));     // carbohydrate_content
+        ps.setObject(21, Safety.safeDouble(c.get(20)));     // fiber_content
+        ps.setObject(22, Safety.safeDouble(c.get(21)));     // sugar_content
+        ps.setObject(23, Safety.safeDouble(c.get(22)));     // protein_content
+        ps.setObject(24, Safety.safeDouble(c.get(23)));     // recipe_servings
+        ps.setString(25, Safety.safeStr(c.get(24)));        // recipe_yield
+        ps.setString(26, Safety.safeStr(c.get(25)));        // recipe_instructions
+        ps.setString(27, Safety.normalizeArray(c.get(26))); // favorite_users
     }
 
 
@@ -439,4 +338,20 @@ public class RecipeKeywordsImporter {
             }
         }
     }
+
+    public static void dropRecipeLines() throws SQLException {
+
+        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+             Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate("ALTER TABLE recipes DROP COLUMN author_name");
+
+        }
+
+        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+             Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate("ALTER TABLE recipes DROP COLUMN keywords");
+
+        }
+    }
+
 }

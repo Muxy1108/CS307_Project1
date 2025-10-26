@@ -15,63 +15,7 @@ public class UserImporter {
     private static final String JDBC_USER = "postgres";
     private static final String JDBC_PASS = "Xieyan2005";
 
-    public static List<String[]> ReadUserCSV(String csvPath) {
-        List<String[]> rows = new ArrayList<>();
 
-        System.out.println("开始读取 CSV 文件...");
-
-        CSVParser parser = new CSVParserBuilder()
-                .withSeparator(',')
-                .withQuoteChar('"')
-                .withEscapeChar('\\')
-                .withIgnoreQuotations(false)
-                .withStrictQuotes(false)
-                .build();
-
-        try (BufferedReader br = new BufferedReader(new FileReader(csvPath));
-             CSVReader reader = new CSVReaderBuilder(br)
-                     .withCSVParser(parser)
-                     .withSkipLines(0)
-                     .build()) {
-
-            String[] header = reader.readNext();
-            if (header == null) {
-                System.err.println("Empty CSV file.");
-                return rows;
-            }
-
-            String[] line;
-            int lineCount = 0;
-            int errorCount = 0;
-
-            while (true) {
-                try {
-                    line = reader.readNext();
-                    if(line == null) break;
-
-                    lineCount++;
-
-                    if (line.length >= EXPECTED_COLUMNS) {
-                        rows.add(line);
-                    }else{
-                        errorCount++;
-                    }
-
-                    if (lineCount % 10000 == 0) {
-                        System.out.println("已读取行数: " + lineCount + ", 错误: " + errorCount);
-                    }
-
-                } catch (Exception e) {
-                    errorCount ++;
-                }
-            }
-            System.out.println("读取完成: 总行数 = " + lineCount + ", 有效行 = " + rows.size() + ", 错误 = " + errorCount);
-        } catch (Exception e) {
-            System.err.println("读取 CSV 文件失败: " + e.getMessage());
-            e.printStackTrace();
-        }
-        return rows;
-    }
     public static void createUserTable() throws SQLException {
 
         try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
@@ -96,7 +40,7 @@ public class UserImporter {
                     "user_id INTEGER NOT NULL, " +
                     "follower_id INTEGER NOT NULL, " +
                     "FOREIGN KEY (user_id) REFERENCES users(author_id)," +
-                    "FOREIGN KEY (follower_id) REFERENCES users(author_id) ON DELETE CASCADE, " +
+                    "FOREIGN KEY (follower_id) REFERENCES users(author_id), " +
                     "UNIQUE(user_id, follower_id)" +
                     ")";
             stmt.execute(sql);
@@ -109,7 +53,7 @@ public class UserImporter {
                     "user_id INTEGER NOT NULL, " +
                     "following_id INTEGER NOT NULL, " +
                     "FOREIGN KEY (user_id) REFERENCES users(author_id)," +
-                    "FOREIGN KEY (following_id) REFERENCES users(author_id) ON DELETE CASCADE, " +
+                    "FOREIGN KEY (following_id) REFERENCES users(author_id), " +
                     "UNIQUE(user_id, following_id)" +
                     ")";
             stmt.execute(sql);
@@ -119,7 +63,7 @@ public class UserImporter {
     }
 
 
-    public static void importUserData(List<String[]> rows) throws Exception {
+    public static void importUserData(List<String[]> rows) throws Exception{
 
         ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
         AtomicInteger usersInserted = new AtomicInteger(0);
@@ -144,16 +88,11 @@ public class UserImporter {
                 int batchUsers = 0;
                 int batchSkipped = 0;
                 int batchUserProcessed = 0;
-                int batchFollowers = 0;
-                int batchFollowing = 0;
 
                 try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
 
                      PreparedStatement userStmt = conn.prepareStatement(getInsertSQLUsers());
-                     PreparedStatement followerStmt = conn.prepareStatement(
-                             "INSERT INTO user_followers (user_id, follower_id) VALUES (?, ?) ON CONFLICT DO NOTHING");
-                     PreparedStatement followingStmt = conn.prepareStatement(
-                             "INSERT INTO user_following (user_id, following_id) VALUES (?, ?) ON CONFLICT DO NOTHING")
+
                      ){
 
                     for (String[] cols : batch) {
@@ -170,44 +109,6 @@ public class UserImporter {
 
                             if (userResult > 0) {
                                 batchUsers ++;
-
-                                String followerUsers = c.get(6);
-                                if (followerUsers != null && !followerUsers.trim().isEmpty()) {
-                                    batchUserProcessed ++;
-
-                                    List<Integer> followerIds = parseUserIds(followerUsers);
-
-                                    if (!followerIds.isEmpty()) {
-
-                                        for (Integer followerId : followerIds) {
-
-
-                                            followerStmt.setInt(1, authorId);
-                                            followerStmt.setInt(2, followerId);
-                                            int followersResult = followerStmt.executeUpdate();
-
-                                            if (followersResult > 0) {
-                                                batchFollowers ++;
-                                            }
-                                        }
-                                    }
-                                }
-                                String followingUsers = c.get(7); // following_users 列
-                                if (followingUsers != null && !followingUsers.trim().isEmpty()) {
-                                    List<Integer> followingIds = parseUserIds(followingUsers);
-                                    if (!followingIds.isEmpty()) {
-                                        for (Integer followingId : followingIds) {
-                                            if (followingId != null && !followingId.equals(authorId)) {
-                                                followingStmt.setInt(1, authorId);
-                                                followingStmt.setInt(2, followingId);
-                                                int followingResult = followingStmt.executeUpdate();
-                                                if (followingResult > 0) {
-                                                    batchFollowing ++;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         } catch (Exception ex) {
                             batchSkipped++;
@@ -220,8 +121,6 @@ public class UserImporter {
                     batchSkipped = batch.size();
                 } finally {
                     usersInserted.addAndGet(batchUsers);
-                    followersInserted.addAndGet(batchFollowers);
-                    followingInserted.addAndGet(batchFollowing);
                     skipped.addAndGet(batchSkipped);
                     latch.countDown();
                 }
@@ -237,37 +136,100 @@ public class UserImporter {
                 "following = " + followingInserted.get() + ", " +
                 "skipped = " + skipped.get());
 
-        verifyUsersImport();
+        //verifyUsersImport();
     }
 
-    public static List<Integer> parseUserIds(String userData) {
-        List<Integer> userIds = new ArrayList<>();
-        if (userData == null || userData.trim().isEmpty()) {
-            return userIds;
+    public static void importUserFollows(List<String[]> rows) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
+        AtomicInteger followersInserted = new AtomicInteger(0);
+        AtomicInteger followingInserted = new AtomicInteger(0);
+
+        List<List<String[]>> partitions = new ArrayList<>();
+        for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
+            partitions.add(rows.subList(i, Math.min(i + BATCH_SIZE, rows.size())));
         }
 
-        try {
-            String cleaned = userData.trim();
-            if(cleaned.isEmpty() || cleaned.equals("null") || cleaned.equals("NULL")){
-                return userIds;
-            }
+        CountDownLatch latch = new CountDownLatch(partitions.size());
 
-            String[] parts = cleaned.split(",");
-            for (String part : parts) {
-                String trimmed = part.trim();
-                Integer userId = Safety.safeInt(trimmed);
-                if (userId != null) {
-                    userIds.add(userId);
-                   // System.out.println("【parseUserIds】成功解析: '" + trimmed + "' -> " + userId);
+        for (int i = 0; i < partitions.size(); i++) {
+            final int partitionIndex = i;
+            List<String[]> batch = partitions.get(i);
+
+            pool.submit(() -> {
+                int batchFollowers = 0;
+                int batchFollowing = 0;
+
+                try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+                     PreparedStatement followerStmt = conn.prepareStatement(
+                             "INSERT INTO user_followers (user_id, follower_id) VALUES (?, ?) ON CONFLICT DO NOTHING");
+                     PreparedStatement followingStmt = conn.prepareStatement(
+                             "INSERT INTO user_following (user_id, following_id) VALUES (?, ?) ON CONFLICT DO NOTHING")) {
+
+                    for (String[] cols : batch) {
+                        try {
+                            List<String> c = Safety.padToExpected(cols);
+                            Integer authorId = Safety.safeInt(c.get(0));
+
+                            if (authorId == null) continue;
+
+                            String followerUsers = c.get(6);
+                            if (followerUsers != null && !followerUsers.trim().isEmpty()) {
+                                List<Integer> followerIds = CSVReader.parseIds(followerUsers);
+                                for (Integer followerId : followerIds) {
+                                    if (followerId != null) {
+                                        followerStmt.setInt(1, authorId);
+                                        followerStmt.setInt(2, followerId);
+                                        try {
+                                            int result = followerStmt.executeUpdate();
+                                            if (result > 0) batchFollowers++;
+                                        } catch (SQLException e) {
+                                            if (!e.getMessage().contains("外键约束")) {
+                                                System.err.println("followers 关系插入错误: " + e.getMessage());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            String followingUsers = c.get(7);
+                            if (followingUsers != null && !followingUsers.trim().isEmpty()) {
+                                List<Integer> followingIds = CSVReader.parseIds(followingUsers);
+                                for (Integer followingId : followingIds) {
+                                    if (followingId != null && !followingId.equals(authorId)) {
+                                        followingStmt.setInt(1, authorId);
+                                        followingStmt.setInt(2, followingId);
+                                        try {
+                                            int result = followingStmt.executeUpdate();
+                                            if (result > 0) batchFollowing++;
+                                        } catch (SQLException e) {
+                                            if (!e.getMessage().contains("外键约束")) {
+                                                System.err.println("关注关系插入错误: " + e.getMessage());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }catch (Exception ex) {
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("分区 " + partitionIndex + " 关系插入失败: " + e.getMessage());
+                } finally {
+                    followersInserted.addAndGet(batchFollowers);
+                    followingInserted.addAndGet(batchFollowing);
+                    latch.countDown();
                 }
-            }
-        } catch (Exception e) {
-            //System.err.println("解析用户ID失败: " + userData);
+            });
         }
-        return userIds;
+
+        latch.await();
+        pool.shutdown();
+        System.out.println("关系数据导入完成: followers = " + followersInserted.get() +
+                ", following = " + followingInserted.get());
     }
 
-    public static String getInsertSQLUsers() {
+
+    private static String getInsertSQLUsers() {
         return """
         INSERT INTO users (
             author_id, author_name, gender, age, followers_count, following_count, user_followers, user_following) 
@@ -279,7 +241,7 @@ public class UserImporter {
     }
 
     public static void fillPreparedStatementForUsers(PreparedStatement ps, List<String> c) throws SQLException {
-        ps.setInt(1, Safety.safeInt(c.get(0)));                    // author_id
+        ps.setObject(1, Safety.safeInt(c.get(0)));                    // author_id
         ps.setString(2, Safety.safeStr(c.get(1)));                 // author_name
         ps.setString(3, Safety.safeStr(c.get(2)));                 // gender
         ps.setObject(4, Safety.safeInt(c.get(3)));                 // age
@@ -291,7 +253,7 @@ public class UserImporter {
     }
 
 
-    public static void verifyUsersImport() throws SQLException {
+    private static void verifyUsersImport() throws SQLException {
         try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
              Statement stmt = conn.createStatement()) {
 
@@ -302,6 +264,17 @@ public class UserImporter {
                 System.out.println("users 表记录数: " + rs.getInt(1));
             }
         }
+    }
+
+    public static void dropUserColumns() throws SQLException{
+        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+             Statement stmt = conn.createStatement()) {
+
+            stmt.executeUpdate("ALTER TABLE users DROP COLUMN user_followers");
+            stmt.executeUpdate("ALTER TABLE users DROP COLUMN user_following");
+
+        }
+
     }
 
 }
