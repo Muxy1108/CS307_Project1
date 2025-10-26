@@ -6,8 +6,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class Safety {
-
-    private static final int EXPECTED_COLUMNS = 27;
     private static final int BATCH_SIZE = 1000;
     private static final int THREAD_COUNT = 6;
     private static final String JDBC_URL = "jdbc:postgresql://localhost:5432/postgres";
@@ -23,8 +21,22 @@ public class Safety {
     }
 
     public static Integer safeInt(String s) {
-        try { return (s == null || s.trim().isEmpty()) ? null : Integer.parseInt(s.trim()); }
-        catch (NumberFormatException e) { return null; }
+        if (s == null || s.trim().isEmpty()) return null;
+        try {
+            String trimmed = s.trim();
+            return Integer.parseInt(trimmed);
+        } catch (NumberFormatException e1) {
+            try {
+                String trimmed = s.trim();
+                if (trimmed.contains(".")) {
+                    double doubleValue = Double.parseDouble(trimmed);
+                        return (int) doubleValue;
+                }
+                return null;
+            } catch (NumberFormatException e2){
+                return null;
+            }
+        }
     }
 
     public static Double safeDouble(String s) {
@@ -54,11 +66,146 @@ public class Safety {
                 .collect(Collectors.joining(",", "[", "]"));
     }
 
-    public static List<String> padToExpected(String[] cols) {
+    public static List<String> padToExpected(String[] cols,int EXPECTED_COLUMNS) {
         List<String> c = new ArrayList<>(Arrays.asList(cols));
         while (c.size() < EXPECTED_COLUMNS) c.add(null);
         if (c.size() > EXPECTED_COLUMNS) c = c.subList(0, EXPECTED_COLUMNS);
         return c;
     }
+
+    public static List<Integer> parseIds(String Data) {
+        List<Integer> Ids = new ArrayList<>();
+        if (Data == null || Data.trim().isEmpty()) {
+            return Ids;
+        }
+
+        try {
+            String cleaned = Data.trim();
+            if(cleaned.isEmpty() || cleaned.equals("null") || cleaned.equals("NULL")){
+                return Ids;
+            }
+
+            String[] parts = cleaned.split(",");
+            for (String part : parts) {
+                String trimmed = part.trim();
+                Integer Id = Safety.safeInt(trimmed);
+                if (Id != null) {
+                    Ids.add(Id);
+                }
+            }
+        } catch (Exception e) {
+        }
+        return Ids;
+    }
+
+    public static List<String> parseStrs(String data) {
+        List<String> result = new ArrayList<>();
+
+        // 空值检查
+        if (data == null || data.trim().isEmpty() ||
+                data.trim().equals("null") || data.trim().equals("NULL")) {
+            return result;
+        }
+
+        String cleaned = data.trim();
+        if (cleaned.isEmpty()) {
+            return result;
+        }
+
+        List<String> parsedItems = parseWithQuotes(cleaned);
+
+        for (String item : parsedItems) {
+            String safeStr = Safety.safeStr(item.trim());
+            if (safeStr.startsWith("c(") && safeStr.endsWith(")")) {
+                String content = safeStr.substring(2, safeStr.length() - 1);
+                result.add(content);
+            }
+            else if (safeStr.startsWith("[") && safeStr.endsWith("]")) {
+                String content = safeStr.substring(1, safeStr.length() - 1);
+                result.add(content);
+            }
+
+            else if (!safeStr.isEmpty()) {
+                result.add(safeStr);
+            }
+        }
+
+        return result;
+    }
+
+
+    private static List<String> parseWithQuotes(String content) {
+        List<String> items = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        char quoteChar = '"';
+
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+
+            if ((c == '"' || c == '\'') && (i == 0 || content.charAt(i-1) != '\\')) {
+                if (!inQuotes) {
+                    inQuotes = true;
+                    quoteChar = c;
+                } else if (c == quoteChar) {
+                    inQuotes = false;
+                }
+            } else if (c == ',' && !inQuotes) {
+                String item = current.toString().trim();
+                if (!item.isEmpty()) {
+                    items.add(item);
+                }
+                current.setLength(0);
+                continue;
+            }
+
+            current.append(c);
+        }
+
+        String lastItem = current.toString().trim();
+        if (!lastItem.isEmpty()) {
+            items.add(lastItem);
+        }
+
+        return items;
+    }
+
+    public static List<String> parseQuoted(String content) {
+        List<String> items = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        char quoteChar = '"';
+
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+
+            if ((c == '"' || c == '\'') && (i == 0 || content.charAt(i-1) != '\\')) {
+                if (!inQuotes) {
+                    inQuotes = true;
+                    quoteChar = c;
+                } else if (c == quoteChar) {
+                    inQuotes = false;
+                }
+            } else if (c == ',' && !inQuotes) {
+
+                String item = current.toString().trim();
+                if (!item.isEmpty()) {
+                    items.add(item);
+                }
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+
+        String lastItem = current.toString().trim();
+        if (!lastItem.isEmpty()) {
+            items.add(lastItem);
+        }
+
+        return items;
+    }
+
+
 
 }

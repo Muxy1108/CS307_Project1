@@ -66,33 +66,4 @@ public class CSVReader {
         }
         return rows;
     }
-
-
-    public static List<Integer> parseIds(String Data) {
-        List<Integer> Ids = new ArrayList<>();
-        if (Data == null || Data.trim().isEmpty()) {
-            return Ids;
-        }
-
-        try {
-            String cleaned = Data.trim();
-            if(cleaned.isEmpty() || cleaned.equals("null") || cleaned.equals("NULL")){
-                return Ids;
-            }
-
-            String[] parts = cleaned.split(",");
-            for (String part : parts) {
-                String trimmed = part.trim();
-                Integer Id = Safety.safeInt(trimmed);
-                if (Id != null) {
-                    Ids.add(Id);
-                    // System.out.println("【parseUserIds】成功解析: '" + trimmed + "' -> " + userId);
-                }
-            }
-        } catch (Exception e) {
-            //System.err.println("解析用户ID失败: " + userData);
-        }
-        return Ids;
-    }
-
 }

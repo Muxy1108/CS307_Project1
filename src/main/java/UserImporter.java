@@ -97,7 +97,7 @@ public class UserImporter {
 
                     for (String[] cols : batch) {
                         try {
-                            List<String> c = Safety.padToExpected(cols);
+                            List<String> c = Safety.padToExpected(cols,EXPECTED_COLUMNS);
                             Integer authorId = Safety.safeInt(c.get(0));
 
                             if (authorId == null) {
@@ -139,7 +139,7 @@ public class UserImporter {
         //verifyUsersImport();
     }
 
-    public static void importUserFollows(List<String[]> rows) throws Exception {
+    public static void importUserRelated(List<String[]> rows) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
         AtomicInteger followersInserted = new AtomicInteger(0);
         AtomicInteger followingInserted = new AtomicInteger(0);
@@ -167,14 +167,14 @@ public class UserImporter {
 
                     for (String[] cols : batch) {
                         try {
-                            List<String> c = Safety.padToExpected(cols);
+                            List<String> c = Safety.padToExpected(cols,EXPECTED_COLUMNS);
                             Integer authorId = Safety.safeInt(c.get(0));
 
                             if (authorId == null) continue;
 
                             String followerUsers = c.get(6);
                             if (followerUsers != null && !followerUsers.trim().isEmpty()) {
-                                List<Integer> followerIds = CSVReader.parseIds(followerUsers);
+                                List<Integer> followerIds = Safety.parseIds(followerUsers);
                                 for (Integer followerId : followerIds) {
                                     if (followerId != null) {
                                         followerStmt.setInt(1, authorId);
@@ -193,7 +193,7 @@ public class UserImporter {
 
                             String followingUsers = c.get(7);
                             if (followingUsers != null && !followingUsers.trim().isEmpty()) {
-                                List<Integer> followingIds = CSVReader.parseIds(followingUsers);
+                                List<Integer> followingIds = Safety.parseIds(followingUsers);
                                 for (Integer followingId : followingIds) {
                                     if (followingId != null && !followingId.equals(authorId)) {
                                         followingStmt.setInt(1, authorId);

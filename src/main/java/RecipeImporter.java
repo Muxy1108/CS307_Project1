@@ -24,15 +24,15 @@ public class RecipeImporter {
              Statement stmt = conn.createStatement()) {
             String sql = "CREATE TABLE IF NOT EXISTS recipes (" +
                     "recipe_id INTEGER PRIMARY KEY NOT NULL, " +
-                    "recipe_name VARCHAR(200) NOT NULL, " +
+                    "recipe_name text NOT NULL, " +
                     "author_id INTEGER, " +
-                    "author_name VARCHAR(100), " +
-                    "cook_time VARCHAR(50), " +
-                    "prep_time VARCHAR(50), " +
-                    "total_time VARCHAR(50), " +
+                    "author_name text, " +
+                    "cook_time text, " +
+                    "prep_time text, " +
+                    "total_time text, " +
                     "date_published DATE, " +
                     "description TEXT, " +
-                    "recipe_category VARCHAR(100), " +
+                    "recipe_category text, " +
                     "keywords TEXT, " +
                     "recipe_ingredient TEXT, " +
                     "aggregated_rating NUMERIC(3,1) CHECK (aggregated_rating BETWEEN 0 AND 5), " +
@@ -47,7 +47,7 @@ public class RecipeImporter {
                     "sugar_content INTEGER DEFAULT 0, " +
                     "protein_content INTEGER DEFAULT 0, " +
                     "recipe_servings INTEGER CHECK (recipe_servings > 0), " +
-                    "recipe_yield VARCHAR(100), " +
+                    "recipe_yield text, " +
                     "recipe_instructions TEXT, " +
                     "favorite_users TEXT, " +
                     "FOREIGN KEY (author_id) REFERENCES users(author_id) " +
@@ -55,20 +55,41 @@ public class RecipeImporter {
                     ")";
             stmt.execute(sql);
             System.out.println("recipes 表创建完成");
-        }
 
-        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-             Statement stmt = conn.createStatement()) {
-            String sql = "CREATE TABLE IF NOT EXISTS keywords (" +
+            String keywords_sql = "CREATE TABLE IF NOT EXISTS keywords (" +
                     "keyword_id SERIAL primary key not null, " +
                     "recipe_id  INTEGER            not null, " +
                     "keyword_text TEXT             not null, " +
                     "FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id) ON DELETE CASCADE" +
                     ")";
-            stmt.execute(sql);
+            stmt.execute(keywords_sql);
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_keywords_recipe_id ON keywords(recipe_id)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_keywords_keyword_text ON keywords(keyword_text)");
             System.out.println("keywords 表创建完成");
+
+
+            String ingredient_sql = "CREATE TABLE IF NOT EXISTS recipe_ingredients (" +
+                    "ingredient_id SERIAL PRIMARY KEY NOT NULL, " +
+                    "recipe_id INTEGER NOT NULL, " +
+                    "ingredient_text TEXT NOT NULL, " +
+                    "FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id)" +
+                    ")";
+            stmt.execute(ingredient_sql);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_ingredients_recipe_id ON recipe_ingredients(recipe_id)");
+            System.out.println("recipe_ingredients 表创建完成");
+
+
+            String instruction_sql = "CREATE TABLE IF NOT EXISTS recipe_instructions (" +
+                    "instruction_id SERIAL PRIMARY KEY NOT NULL, " +
+                    "recipe_id INTEGER NOT NULL, " +
+                    "step_order INTEGER NOT NULL, " +
+                    "instruction_text TEXT NOT NULL, " +
+                    "FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id)" +
+                    ")";
+            stmt.execute(instruction_sql);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_instructions_recipe_id ON recipe_instructions(recipe_id)");
+            System.out.println("recipe_instructions 表创建完成");
+
         }
     }
 
@@ -76,9 +97,7 @@ public class RecipeImporter {
     public static void importRecipeData(List<String[]> rows) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
         AtomicInteger recipesInserted = new AtomicInteger(0);
-        AtomicInteger keywordsInserted = new AtomicInteger(0);
         AtomicInteger skipped = new AtomicInteger(0);
-        AtomicInteger keywordsProcessed = new AtomicInteger(0);
 
         List<List<String[]>> partitions = new ArrayList<>();
         for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
@@ -89,72 +108,45 @@ public class RecipeImporter {
 
         System.out.println("开始并行导入recipes，分区数: " + partitions.size());
 
-        for (int i = 0; i < partitions.size(); i ++) {
+        for (int i = 0; i < partitions.size(); i++) {
             final int partitionIndex = i;
             List<String[]> batch = partitions.get(i);
 
             pool.submit(() -> {
                 int batchRecipes = 0;
-                int batchKeywords = 0;
                 int batchSkipped = 0;
-                int batchKeywordsProcessed = 0;
 
                 try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-                     PreparedStatement recipeStmt = conn.prepareStatement(getInsertSQLWithoutKeywords());
-                     PreparedStatement keywordStmt = conn.prepareStatement(
-                             "INSERT INTO keywords (recipe_id, keyword_text) VALUES (?, ?)")) {
+                     PreparedStatement recipeStmt = conn.prepareStatement(getInsertSQLRecipes())) {
 
                     for (String[] cols : batch) {
                         try {
-                            List<String> c = Safety.padToExpected(cols);
+                            List<String> c = Safety.padToExpected(cols,EXPECTED_COLUMNS);
                             Integer recipeId = Safety.safeInt(c.get(0));
 
                             if (recipeId == null) {
-                                batchSkipped ++;
+                                batchSkipped++;
                                 continue;
                             }
-                            fillPreparedStatementWithoutKeywords(recipeStmt, c);
+
+                            fillPreparedStatementRecipe(recipeStmt, c);
                             int recipeResult = recipeStmt.executeUpdate();
 
                             if (recipeResult > 0) {
                                 batchRecipes++;
-
-                                String rawKeywords = c.get(10);
-                                if (rawKeywords != null && !rawKeywords.trim().isEmpty()) {
-                                    batchKeywordsProcessed++;
-
-                                    List<String> keywords = parseCSVKeywords(rawKeywords);
-
-                                    if(!keywords.isEmpty()) {
-                                        for (String keyword : keywords) {
-                                            if (keyword.length() > 255) {
-                                                keyword = keyword.substring(0, 255);
-                                            }
-
-                                            keywordStmt.setInt(1, recipeId);
-                                            keywordStmt.setString(2, keyword);
-                                            int keywordResult = keywordStmt.executeUpdate();
-
-                                            if (keywordResult > 0) {
-                                                batchKeywords++;
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         } catch (Exception ex) {
                             batchSkipped++;
                             System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
                         }
                     }
+
                 } catch (Exception e) {
                     System.err.println("分区 " + partitionIndex + " 数据库连接失败: " + e.getMessage());
                     batchSkipped = batch.size();
                 } finally {
                     recipesInserted.addAndGet(batchRecipes);
-                    keywordsInserted.addAndGet(batchKeywords);
                     skipped.addAndGet(batchSkipped);
-                    keywordsProcessed.addAndGet(batchKeywordsProcessed);
                     latch.countDown();
                 }
             });
@@ -163,122 +155,150 @@ public class RecipeImporter {
         latch.await();
         pool.shutdown();
 
-        System.out.println("导入完成. " +
+        System.out.println("Recipes导入完成. " +
                 "recipes = " + recipesInserted.get() + ", " +
-                "keywords = " + keywordsInserted.get() + ", " +
-                "keywordsProcessed = " + keywordsProcessed.get() + ", " +
                 "skipped = " + skipped.get());
 
-        verifyKeywordsImport();
     }
 
-    public static List<String> parseCSVKeywords(String rawKeywords) {
-        List<String> keywords = new ArrayList<>();
+    public static void importRecipeRelated(List<String[]> rows) throws Exception {
 
-        if (rawKeywords == null || rawKeywords.trim().isEmpty()) {
-            return keywords;
+        ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
+
+        AtomicInteger keywordsInserted = new AtomicInteger(0);
+        AtomicInteger ingredientsInserted = new AtomicInteger(0);
+        AtomicInteger instructionsInserted = new AtomicInteger(0);
+        AtomicInteger skipped = new AtomicInteger(0);
+        AtomicInteger recipesProcessed = new AtomicInteger(0);
+
+        List<List<String[]>> partitions = new ArrayList<>();
+        for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
+            partitions.add(rows.subList(i, Math.min(i + BATCH_SIZE, rows.size())));
         }
 
-        String trimmed = rawKeywords.trim();
+        CountDownLatch latch = new CountDownLatch(partitions.size());
 
-        try {
+        System.out.println("开始并行导入所有关联数据，分区数: " + partitions.size());
 
-            if (trimmed.startsWith("c(") && trimmed.endsWith(")")) {
-                String content = trimmed.substring(2, trimmed.length() - 1);
-                //System.out.println("检测到 c() 格式，内容: '" + content + "'");
-                return parseQuotedItems(content);
-            }
-            // 2. 处理 JSON 数组格式: ["keyword1", "keyword2"]
-            else if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-                String content = trimmed.substring(1, trimmed.length() - 1);
-                //System.out.println("   检测到 JSON 数组格式，内容: '" + content + "'");
-                return parseQuotedItems(content);
-            }
-            // 3. 处理三重引号格式: """keyword1, keyword2"""
-            else if (trimmed.startsWith("\"\"\"") && trimmed.endsWith("\"\"\"")) {
-                String content = trimmed.substring(3, trimmed.length() - 3);
-                //System.out.println("   检测到三重引号格式，内容: '" + content + "'");
-                String[] items = content.split(",");
-                for (String item : items) {
-                    String keyword = item.trim();
-                    if (!keyword.isEmpty()) {
-                        keywords.add(keyword);
+        for (int i = 0; i < partitions.size(); i++) {
+            final int partitionIndex = i;
+            List<String[]> batch = partitions.get(i);
+
+            pool.submit(() -> {
+                int batchKeywords = 0;
+                int batchIngredients = 0;
+                int batchInstructions = 0;
+                int batchSkipped = 0;
+                int batchRecipesProcessed = 0;
+
+                try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+                     PreparedStatement keywordStmt = conn.prepareStatement(
+                             "INSERT INTO keywords (recipe_id, keyword_text) VALUES (?, ?) ON CONFLICT DO NOTHING");
+                     PreparedStatement ingredientStmt = conn.prepareStatement(
+                             "INSERT INTO recipe_ingredients (recipe_id, ingredient_text) VALUES (?, ?) ON CONFLICT DO NOTHING");
+                     PreparedStatement instructionStmt = conn.prepareStatement(
+                             "INSERT INTO recipe_instructions (recipe_id, step_order, instruction_text) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")) {
+
+                    for (String[] cols : batch) {
+                        try {
+                            List<String> c = Safety.padToExpected(cols,EXPECTED_COLUMNS);
+                            Integer recipeId = Safety.safeInt(c.get(0));
+
+                            if (recipeId == null) {
+                                batchSkipped++;
+                                continue;
+                            }
+
+                            batchRecipesProcessed++;
+
+                            String rawKeywords = c.get(10);
+                            if (rawKeywords != null && !rawKeywords.trim().isEmpty()) {
+                                List<String> keywords = Safety.parseStrs(rawKeywords);
+                                if (!keywords.isEmpty()) {
+                                    for (String keyword : keywords) {
+                                        if (keyword.length() > 255) {
+                                            keyword = keyword.substring(0, 255);
+                                        }
+                                        keywordStmt.setInt(1, recipeId);
+                                        keywordStmt.setString(2, keyword);
+                                        int keywordResult = keywordStmt.executeUpdate();
+                                        if (keywordResult > 0) {
+                                            batchKeywords++;
+                                        }
+                                    }
+                                }
+                            }
+
+
+                            String rawIngredients = Safety.normalizeArray(c.get(11));
+                            if (rawIngredients != null && !rawIngredients.trim().isEmpty()){
+                                List<String> ingredients = Safety.parseStrs(rawIngredients);
+                                if (!ingredients.isEmpty()){
+                                    for (String ingredient : ingredients){
+                                        if (ingredient != null && !ingredient.trim().isEmpty()){
+                                            ingredientStmt.setInt(1, recipeId);
+                                            ingredientStmt.setString(2, ingredient.trim());
+                                            int ingredientResult = ingredientStmt.executeUpdate();
+                                            if (ingredientResult > 0) {
+                                                batchIngredients++;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+
+                            String rawInstructions = Safety.safeStr(c.get(25));
+                            if (rawInstructions != null && !rawInstructions.trim().isEmpty()) {
+                                List<String> instructions = Safety.parseStrs(rawInstructions);
+                                if (!instructions.isEmpty()) {
+                                    int stepOrder = 1;
+                                    for (String instruction : instructions) {
+                                        if (instruction != null && !instruction.trim().isEmpty()) {
+                                            instructionStmt.setInt(1, recipeId);
+                                            instructionStmt.setInt(2, stepOrder);
+                                            instructionStmt.setString(3, instruction.trim());
+                                            int instructionResult = instructionStmt.executeUpdate();
+                                            if (instructionResult > 0) {
+                                                batchInstructions++;
+                                            }
+                                            stepOrder++;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Exception ex) {
+                            batchSkipped++;
+                            System.err.println("分区 " + partitionIndex + " 处理失败: " + ex.getMessage());
+                        }
                     }
+                } catch (Exception e) {
+                    System.err.println("分区 " + partitionIndex + " 数据库连接失败: " + e.getMessage());
+                    batchSkipped = batch.size();
+                } finally {
+                    keywordsInserted.addAndGet(batchKeywords);
+                    ingredientsInserted.addAndGet(batchIngredients);
+                    instructionsInserted.addAndGet(batchInstructions);
+                    skipped.addAndGet(batchSkipped);
+                    recipesProcessed.addAndGet(batchRecipesProcessed);
+                    latch.countDown();
                 }
-                return keywords;
-            }
-
-            else if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
-                String keyword = trimmed.substring(1, trimmed.length() - 1);
-                //System.out.println("   检测到单个引号字符串: '" + keyword + "'");
-                keywords.add(keyword);
-                return keywords;
-            }
-
-            else if (trimmed.contains(",")) {
-                //System.out.println("   检测到逗号分隔格式");
-                String[] items = trimmed.split(",");
-                for (String item : items) {
-                    String keyword = item.trim();
-                    if (!keyword.isEmpty()) {
-                        keywords.add(keyword);
-                    }
-                }
-                return keywords;
-            }
-            // 6. 单个关键词
-            else {
-                //System.out.println("   作为单个关键词处理: '" + trimmed + "'");
-                keywords.add(trimmed);
-                return keywords;
-            }
-
-        } catch (Exception e) {
-            //System.err.println("解析 keywords 失败: '" + trimmed + "' - " + e.getMessage());
-            e.printStackTrace();
-            keywords.add(trimmed);
-            return keywords;
-        }
-    }
-
-    public static List<String> parseQuotedItems(String content) {
-        List<String> items = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean inQuotes = false;
-        char quoteChar = '"';
-
-        for (int i = 0; i < content.length(); i++) {
-            char c = content.charAt(i);
-
-            if ((c == '"' || c == '\'') && (i == 0 || content.charAt(i-1) != '\\')) {
-                if (!inQuotes) {
-                    inQuotes = true;
-                    quoteChar = c;
-                } else if (c == quoteChar) {
-                    inQuotes = false;
-                }
-            } else if (c == ',' && !inQuotes) {
-
-                String item = current.toString().trim();
-                if (!item.isEmpty()) {
-                    items.add(item);
-                }
-                current.setLength(0);
-            } else {
-                current.append(c);
-            }
+            });
         }
 
-        String lastItem = current.toString().trim();
-        if (!lastItem.isEmpty()) {
-            items.add(lastItem);
-        }
+        latch.await();
+        pool.shutdown();
 
-        return items;
+        System.out.println("=== recipe导入完成 ===");
+        System.out.println("keywords导入: " + keywordsInserted.get() + " 条");
+        System.out.println("ingredients导入: " + ingredientsInserted.get() + " 条");
+        System.out.println("instructions导入: " + instructionsInserted.get() + " 条");
+        System.out.println("recipe处理数 : " + recipesProcessed.get());
+        System.out.println("跳过的记录: " + skipped.get() + " 条");
     }
 
 
-    public static String getInsertSQLWithoutKeywords() {
+    public static String getInsertSQLRecipes() {
         return """
         INSERT INTO recipes (
             recipe_id, recipe_name, author_id, author_name, cook_time, prep_time,
@@ -294,10 +314,10 @@ public class RecipeImporter {
     """;
     }
 
-    public static void fillPreparedStatementWithoutKeywords(PreparedStatement ps, List<String> c) throws SQLException {
-        ps.setInt(1, Safety.safeInt(c.get(0))); //recipe_id
+    public static void fillPreparedStatementRecipe(PreparedStatement ps, List<String> c) throws SQLException {
+        ps.setObject(1, Safety.safeInt(c.get(0))); //recipe_id
         ps.setString(2, Safety.safeStr(c.get(1))); //recipe_name
-        ps.setInt(3, Safety.safeInt(c.get(2))); //author_id
+        ps.setObject(3, Safety.safeInt(c.get(2))); //author_id
         ps.setString(4, Safety.safeStr(c.get(3))); //author_name 删
         ps.setString(5, Safety.safeStr(c.get(4)));
         ps.setString(6, Safety.safeStr(c.get(5)));
@@ -343,13 +363,10 @@ public class RecipeImporter {
 
         try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
              Statement stmt = conn.createStatement()) {
-            stmt.executeUpdate("ALTER TABLE recipes DROP COLUMN author_name");
-
-        }
-
-        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-             Statement stmt = conn.createStatement()) {
-            stmt.executeUpdate("ALTER TABLE recipes DROP COLUMN keywords");
+            stmt.executeUpdate("ALTER TABLE recipes DROP COLUMN IF EXISTS author_name");
+            stmt.executeUpdate("ALTER TABLE recipes DROP COLUMN IF EXISTS keywords");
+            stmt.executeUpdate("ALTER TABLE recipes DROP COLUMN IF EXISTS recipe_ingredient");
+            stmt.executeUpdate("ALTER TABLE recipes DROP COLUMN IF EXISTS recipe_instructions");
 
         }
     }
