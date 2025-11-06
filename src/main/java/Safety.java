@@ -1,11 +1,22 @@
-import java.sql.Timestamp;
+import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import com.opencsv.*;
+import java.io.*;
+import java.sql.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 public class Safety {
+    private static final String JDBC_URL = "jdbc:postgresql://localhost:5432/postgres";
+    private static final String JDBC_USER = "postgres";
+    private static final String JDBC_PASS = "Xieyan2005";
+
     public static String safeStr(String s) {
         if (s == null) return null;
         s = s.trim();
@@ -162,4 +173,20 @@ public class Safety {
 
         return items;
     }
+
+    public static void deleteAll() throws SQLException{
+        try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
+             Statement stmt = conn.createStatement()){
+            String sql ="drop table if exists users CASCADE";
+            stmt.execute(sql);
+            sql ="drop table if exists recipes CASCADE";
+            stmt.execute(sql);
+            sql ="drop table if exists reviews CASCADE";
+            stmt.execute(sql);
+            System.out.println("所有表删除完毕");
+        }
+
+
+    }
+
 }
