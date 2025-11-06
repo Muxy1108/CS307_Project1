@@ -97,6 +97,7 @@ public class RecipeImporter {
         ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
         AtomicInteger recipesInserted = new AtomicInteger(0);
         AtomicInteger skipped = new AtomicInteger(0);
+        long totalStartTime = System.currentTimeMillis();
 
         List<List<String[]>> partitions = new ArrayList<>();
         for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
@@ -114,10 +115,14 @@ public class RecipeImporter {
             pool.submit(() -> {
                 int batchRecipes = 0;
                 int batchSkipped = 0;
+                int batchRecipeProcessed = 0;
+                long threadStartTime = System.currentTimeMillis();
 
                 try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
                      PreparedStatement recipeStmt = conn.prepareStatement(getInsertSQLRecipes())) {
-
+                    conn.setAutoCommit(false);
+                    int batchCount = 0;
+                    long batchStartTime = System.currentTimeMillis();
                     for (String[] cols : batch) {
                         try {
                             List<String> c = Safety.padToExpected(cols,EXPECTED_COLUMNS);
@@ -129,14 +134,49 @@ public class RecipeImporter {
                             }
 
                             fillPreparedStatementRecipe(recipeStmt, c);
-                            int recipeResult = recipeStmt.executeUpdate();
+                            recipeStmt.addBatch();
+                            batchCount++;
+                            batchRecipeProcessed++;
+                            //int recipeResult = recipeStmt.executeUpdate();
 
-                            if (recipeResult > 0) {
-                                batchRecipes++;
+                            if (batchCount % 1000 == 0) {
+                                int[] results = recipeStmt.executeBatch();
+                                for (int result : results) {
+                                    if (result > 0) {
+                                        batchRecipes++;
+                                    }
+                                }
+                                conn.commit();
+                                recipeStmt.clearBatch();
+                                batchCount = 0;
+                                long currentTime = System.currentTimeMillis();
+                                double speed = 1000.0 / ((currentTime - batchStartTime) / 1000.0);
+                                System.out.printf("分区 %d: 已处理 %d 条用户, 速度: %.2f 条/秒%n",
+                                        partitionIndex, batchRecipes, speed);
+                                batchStartTime = currentTime;
                             }
-                        } catch (Exception ex) {
+
+
+                        }catch (Exception ex) {
                             batchSkipped++;
                             System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
+                            try {
+                                conn.rollback();
+                                recipeStmt.clearBatch();
+                                batchCount = 0;
+                            } catch (SQLException rollbackEx) {
+                                System.err.println("回滚失败: " + rollbackEx.getMessage());
+                            }
+                        }
+                    }
+                    if(batchCount > 0){
+                        try{
+                            int[] results = recipeStmt.executeBatch();
+                            for (int result : results) if (result > 0) batchRecipes++;
+                            conn.commit();
+                        }catch(SQLException ex){
+                            System.err.println("最后一批提交失败: " + ex.getMessage());
+                            conn.rollback();
                         }
                     }
 
@@ -146,6 +186,11 @@ public class RecipeImporter {
                 } finally {
                     recipesInserted.addAndGet(batchRecipes);
                     skipped.addAndGet(batchSkipped);
+                    long threadEndTime = System.currentTimeMillis();
+                    long threadTime = threadEndTime - threadStartTime;
+                    System.out.printf("分区 %d 完成: 处理 %d 条, 耗时 %d ms, 速度: %.2f 条/秒%n",
+                            partitionIndex, batchRecipes, threadTime,
+                            (batchRecipes * 1000.0) / threadTime);
                     latch.countDown();
                 }
             });
@@ -154,9 +199,16 @@ public class RecipeImporter {
         latch.await();
         pool.shutdown();
 
-        System.out.println("Recipes导入完成. " +
-                "recipes = " + recipesInserted.get() + ", " +
-                "skipped = " + skipped.get());
+        long totalEndTime = System.currentTimeMillis();
+        long totalTime = totalEndTime - totalStartTime;
+
+        System.out.println("=========================================");
+        System.out.println("食谱数据导入完成统计:");
+        System.out.println("总耗时: " + totalTime + " ms");
+        System.out.println("处理记录: " + recipesInserted.get() + " 条");
+        System.out.println("跳过记录: " + skipped.get() + " 条");
+        System.out.printf("平均速度: %.2f 条/秒%n", (recipesInserted.get() * 1000.0) / totalTime);
+        System.out.println("=========================================");
 
     }
 

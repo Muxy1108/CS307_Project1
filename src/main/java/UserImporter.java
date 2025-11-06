@@ -173,18 +173,12 @@ public class UserImporter {
         latch.await();
         pool.shutdown();
 
-        System.out.println("导入完成. " +
-                "users = " + usersInserted.get() + ", " +
-                "followers = " + followersInserted.get() + ", " +
-                "following = " + followingInserted.get() + ", " +
-                "skipped = " + skipped.get());
-
         long totalEndTime = System.currentTimeMillis();
         long totalTime = totalEndTime - totalStartTime;
 
         System.out.println("=========================================");
         System.out.println("用户数据导入完成统计:");
-        System.out.println("总耗时: " + totalTime);
+        System.out.println("总耗时: " + totalTime + " ms");
         System.out.println("处理记录: " + usersInserted.get() + " 条");
         System.out.println("跳过记录: " + skipped.get() + " 条");
         System.out.printf("平均速度: %.2f 条/秒%n", (usersInserted.get() * 1000.0) / totalTime);
