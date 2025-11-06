@@ -70,6 +70,7 @@ public class UserImporter {
         AtomicInteger followersInserted = new AtomicInteger(0);
         AtomicInteger followingInserted = new AtomicInteger(0);
         AtomicInteger skipped = new AtomicInteger(0);
+        long totalStartTime = System.currentTimeMillis();
 
         List<List<String[]>> partitions = new ArrayList<>();
         for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
@@ -88,12 +89,13 @@ public class UserImporter {
                 int batchUsers = 0;
                 int batchSkipped = 0;
                 int batchUserProcessed = 0;
+                long threadStartTime = System.currentTimeMillis();
 
                 try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-
-                     PreparedStatement userStmt = conn.prepareStatement(getInsertSQLUsers());
-
-                     ){
+                     PreparedStatement userStmt = conn.prepareStatement(getInsertSQLUsers())){
+                    conn.setAutoCommit(false);
+                    int batchCount = 0;
+                    long batchStartTime = System.currentTimeMillis();
 
                     for (String[] cols : batch) {
                         try {
@@ -105,14 +107,50 @@ public class UserImporter {
                                 continue;
                             }
                             fillPreparedStatementForUsers(userStmt, c);
-                            int userResult = userStmt.executeUpdate();
+                            userStmt.addBatch();
+                            batchCount++;
+                            batchUserProcessed++;
 
-                            if (userResult > 0) {
-                                batchUsers ++;
+                            //逐条处理
+                            // int userResult = userStmt.executeUpdate();
+
+                            //批处理
+                            if (batchCount % 1000 == 0) {
+                                int[] results = userStmt.executeBatch();
+                                for (int result : results) {
+                                    if (result > 0) {
+                                        batchUsers++;
+                                    }
+                                }
+                                conn.commit();
+                                userStmt.clearBatch();
+                                batchCount = 0;
+                                long currentTime = System.currentTimeMillis();
+                                double speed = 1000.0 / ((currentTime - batchStartTime) / 1000.0);
+                                System.out.printf("分区 %d: 已处理 %d 条用户, 速度: %.2f 条/秒%n",
+                                        partitionIndex, batchUsers, speed);
+                                batchStartTime = currentTime;
                             }
                         } catch (Exception ex) {
                             batchSkipped++;
                             System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
+                            try {
+                                conn.rollback();
+                                userStmt.clearBatch();
+                                batchCount = 0;
+                            } catch (SQLException rollbackEx) {
+                                System.err.println("回滚失败: " + rollbackEx.getMessage());
+                            }
+                        }
+                    }
+                    if(batchCount > 0){
+                        try{
+                            int[] results = userStmt.executeBatch();
+                            for (int result : results) if (result > 0) batchUsers++;
+                            conn.commit();
+                        }catch(SQLException ex){
+                            System.err.println("最后一批提交失败: " + ex.getMessage());
+                            conn.rollback();
                         }
                     }
 
@@ -122,6 +160,11 @@ public class UserImporter {
                 } finally {
                     usersInserted.addAndGet(batchUsers);
                     skipped.addAndGet(batchSkipped);
+                    long threadEndTime = System.currentTimeMillis();
+                    long threadTime = threadEndTime - threadStartTime;
+                    System.out.printf("分区 %d 完成: 处理 %d 条, 耗时 %d ms, 速度: %.2f 条/秒%n",
+                            partitionIndex, batchUsers, threadTime,
+                            (batchUsers * 1000.0) / threadTime);
                     latch.countDown();
                 }
             });
@@ -135,6 +178,17 @@ public class UserImporter {
                 "followers = " + followersInserted.get() + ", " +
                 "following = " + followingInserted.get() + ", " +
                 "skipped = " + skipped.get());
+
+        long totalEndTime = System.currentTimeMillis();
+        long totalTime = totalEndTime - totalStartTime;
+
+        System.out.println("=========================================");
+        System.out.println("用户数据导入完成统计:");
+        System.out.println("总耗时: " + totalTime);
+        System.out.println("处理记录: " + usersInserted.get() + " 条");
+        System.out.println("跳过记录: " + skipped.get() + " 条");
+        System.out.printf("平均速度: %.2f 条/秒%n", (usersInserted.get() * 1000.0) / totalTime);
+        System.out.println("=========================================");
 
     }
 
