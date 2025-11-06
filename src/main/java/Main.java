@@ -4,12 +4,15 @@ import java.util.List;
 public class Main {
     public static void main(String[] args){
 
-        try{
-            Safety.deleteAll();
-        }catch (Exception e){
-            System.err.println("数据库未清空！" + e.getMessage());
-            e.printStackTrace();
-        }
+        //delete all tables
+
+//        try{
+//            Safety.deleteAll();
+//        }catch (Exception e){
+//            System.err.println("数据库未清空！" + e.getMessage());
+//            e.printStackTrace();
+//        }
+
         //import users and user_follower/following
 
 //        String UsercsvPath = "data/user.csv";
@@ -25,17 +28,18 @@ public class Main {
 //        }
 
         //import recipes and keywords
-//        String RecipecsvPath = "data/recipes.csv";
-//        List<String[]> recipesrows = CSVReader.ReadCSV(RecipecsvPath,27);
-//        try {
-//            RecipeImporter.createRecipeTable();
-//            RecipeImporter.importRecipeData(recipesrows);
-//            RecipeImporter.importRecipeRelated(recipesrows);
-//            RecipeImporter.dropRecipeLines();
-//        }catch (Exception e) {
-//            System.err.println("recipes 导入失败: " + e.getMessage());
-//            e.printStackTrace();
-//        }
+
+        String RecipecsvPath = "data/recipes.csv";
+        List<String[]> recipesrows = CSVReader.ReadCSV(RecipecsvPath,27);
+        try {
+            RecipeImporter.createRecipeTable();
+            RecipeImporter.importRecipeData(recipesrows);
+            RecipeImporter.importRecipeRelated(recipesrows);
+            RecipeImporter.dropRecipeLines();
+        }catch (Exception e) {
+            System.err.println("recipes 导入失败: " + e.getMessage());
+            e.printStackTrace();
+        }
 
         //import reviews
 

@@ -177,12 +177,28 @@ public class Safety {
     public static void deleteAll() throws SQLException{
         try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
              Statement stmt = conn.createStatement()){
+
             String sql ="drop table if exists users CASCADE";
             stmt.execute(sql);
+            sql ="drop table if exists user_followers CASCADE";
+            stmt.execute(sql);
+            sql ="drop table if exists user_following CASCADE";
+            stmt.execute(sql);
+
             sql ="drop table if exists recipes CASCADE";
             stmt.execute(sql);
+            sql ="drop table if exists keywords CASCADE";
+            stmt.execute(sql);
+            sql ="drop table if exists recipe_instructions CASCADE";
+            stmt.execute(sql);
+            sql ="drop table if exists recipe_ingredients CASCADE";
+            stmt.execute(sql);
+
             sql ="drop table if exists reviews CASCADE";
             stmt.execute(sql);
+            sql ="drop table if exists review_likers CASCADE";
+            stmt.execute(sql);
+
             System.out.println("所有表删除完毕");
         }
 
