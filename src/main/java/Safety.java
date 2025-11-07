@@ -199,6 +199,9 @@ public class Safety {
             sql ="drop table if exists review_likers CASCADE";
             stmt.execute(sql);
 
+            sql ="drop table if exists users_test CASCADE";
+            stmt.execute(sql);
+
             System.out.println("所有表删除完毕");
         }
 
