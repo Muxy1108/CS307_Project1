@@ -266,6 +266,16 @@ public class UserImporter {
                                             }
                                         }
                                     }
+                                    if(batchCountFollowers > 0){
+                                        try{
+                                            int[] results = followerStmt.executeBatch();
+                                            for (int result : results) if (result > 0) batchFollowers++;
+                                            conn.commit();
+                                        }catch(SQLException ex){
+                                            System.err.println("最后一批提交失败: " + ex.getMessage());
+                                            conn.rollback();
+                                        }
+                                    }
                                 }
                             }
 
@@ -307,16 +317,7 @@ public class UserImporter {
                                         }
                                     }
 
-                                    if(batchCountFollowers > 0){
-                                        try{
-                                            int[] results = followerStmt.executeBatch();
-                                            for (int result : results) if (result > 0) batchFollowers++;
-                                            conn.commit();
-                                        }catch(SQLException ex){
-                                            System.err.println("最后一批提交失败: " + ex.getMessage());
-                                            conn.rollback();
-                                        }
-                                    }
+
                                     if(batchCountFollowing > 0){
                                         try{
                                             int[] results = followingStmt.executeBatch();
@@ -328,9 +329,8 @@ public class UserImporter {
                                         }
                                     }
                                 }
-
                             }
-                        }catch (Exception ex) {
+                        }catch (Exception ex){
                         }
                     }
 

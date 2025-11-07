@@ -240,7 +240,8 @@ public class RecipeImporter {
                 int batchIngredients = 0;
                 int batchInstructions = 0;
                 int batchSkipped = 0;
-                int batchRecipesProcessed = 0;
+                int batchKeywordsProcessed = 0;
+                //int batchRecipesProcessed = 0;
 
                 try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
                      PreparedStatement keywordStmt = conn.prepareStatement(
@@ -250,7 +251,12 @@ public class RecipeImporter {
                      PreparedStatement instructionStmt = conn.prepareStatement(
                              "INSERT INTO recipe_instructions (recipe_id, step_order, instruction_text) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")) {
 
+                    conn.setAutoCommit(false);
+                    int batchCountKeywords = 0;
+                    int batchCountFollowing = 0;
+
                     for (String[] cols : batch) {
+
                         try {
                             List<String> c = Safety.padToExpected(cols,EXPECTED_COLUMNS);
                             Integer recipeId = Safety.safeInt(c.get(0));
@@ -260,7 +266,7 @@ public class RecipeImporter {
                                 continue;
                             }
 
-                            batchRecipesProcessed++;
+                            batchKeywordsProcessed++;
 
                             String rawKeywords = c.get(10);
                             if (rawKeywords != null && !rawKeywords.trim().isEmpty()) {
@@ -272,11 +278,51 @@ public class RecipeImporter {
                                         }
                                         keywordStmt.setInt(1, recipeId);
                                         keywordStmt.setString(2, keyword);
-                                        int keywordResult = keywordStmt.executeUpdate();
-                                        if (keywordResult > 0) {
-                                            batchKeywords++;
+
+                                        //int keywordResult = keywordStmt.executeUpdate();
+                                        try {
+                                            //int result = followingStmt.executeUpdate();
+                                            keywordStmt.addBatch();
+                                            batchCountKeywords++;
+
+                                            batchKeywordsProcessed++;
+
+                                            if (batchCountKeywords % 1000 == 0) {
+                                                int[] results = keywordStmt.executeBatch();
+                                                for (int result : results) {
+                                                    if (result > 0) {
+                                                        batchKeywords ++;
+                                                    }
+                                                }
+                                                conn.commit();
+                                                keywordStmt.clearBatch();
+                                                batchCountKeywords = 0;
+
+                                            }
+                                        } catch (Exception ex) {
+                                            batchSkipped++;
+                                            System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
+                                            try {
+                                                conn.rollback();
+                                                keywordStmt.clearBatch();
+                                                batchCountKeywords = 0;
+                                            } catch (SQLException rollbackEx) {
+                                                System.err.println("回滚失败: " + rollbackEx.getMessage());
+                                            }
                                         }
                                     }
+
+                                    if(batchCountKeywords > 0){
+                                        try{
+                                            int[] results = keywordStmt.executeBatch();
+                                            for (int result : results) if (result > 0) batchKeywords++;
+                                            conn.commit();
+                                        }catch(SQLException ex){
+                                            System.err.println("最后一批提交失败: " + ex.getMessage());
+                                            conn.rollback();
+                                        }
+                                    }
+
                                 }
                             }
 
@@ -331,7 +377,6 @@ public class RecipeImporter {
                     ingredientsInserted.addAndGet(batchIngredients);
                     instructionsInserted.addAndGet(batchInstructions);
                     skipped.addAndGet(batchSkipped);
-                    recipesProcessed.addAndGet(batchRecipesProcessed);
                     latch.countDown();
                 }
             });
@@ -344,7 +389,6 @@ public class RecipeImporter {
         System.out.println("keywords导入: " + keywordsInserted.get() + " 条");
         System.out.println("ingredients导入: " + ingredientsInserted.get() + " 条");
         System.out.println("instructions导入: " + instructionsInserted.get() + " 条");
-        System.out.println("recipe处理数 : " + recipesProcessed.get());
         System.out.println("跳过的记录: " + skipped.get() + " 条");
     }
 
