@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
 public class UserImporter {
     private static final int EXPECTED_COLUMNS = 8;
     private static final int BATCH_SIZE = 1000;
-    private static final int THREAD_COUNT = 6;
+    private static final int THREAD_COUNT = 1;
     private static final String JDBC_URL = "jdbc:postgresql://localhost:5432/postgres";
     private static final String JDBC_USER = "postgres";
     private static final String JDBC_PASS = "Xieyan2005";
@@ -127,8 +127,8 @@ public class UserImporter {
                                 batchCount = 0;
                                 long currentTime = System.currentTimeMillis();
                                 double speed = 1000.0 / ((currentTime - batchStartTime) / 1000.0);
-                                System.out.printf("分区 %d: 已处理 %d 条用户, 速度: %.2f 条/秒%n",
-                                        partitionIndex, batchUsers, speed);
+//                                System.out.printf("分区 %d: 已处理 %d 条用户, 速度: %.2f 条/秒%n",
+//                                        partitionIndex, batchUsers, speed);
                                 batchStartTime = currentTime;
                             }
                         } catch (Exception ex) {
@@ -162,9 +162,9 @@ public class UserImporter {
                     skipped.addAndGet(batchSkipped);
                     long threadEndTime = System.currentTimeMillis();
                     long threadTime = threadEndTime - threadStartTime;
-                    System.out.printf("分区 %d 完成: 处理 %d 条, 耗时 %d ms, 速度: %.2f 条/秒%n",
-                            partitionIndex, batchUsers, threadTime,
-                            (batchUsers * 1000.0) / threadTime);
+//                    System.out.printf("分区 %d 完成: 处理 %d 条, 耗时 %d ms, 速度: %.2f 条/秒%n",
+//                            partitionIndex, batchUsers, threadTime,
+//                            (batchUsers * 1000.0) / threadTime);
                     latch.countDown();
                 }
             });
@@ -197,7 +197,7 @@ public class UserImporter {
         }
 
         CountDownLatch latch = new CountDownLatch(partitions.size());
-
+        System.out.println("开始并行导入followers和following。分区数: " + partitions.size());
         for (int i = 0; i < partitions.size(); i++) {
             final int partitionIndex = i;
             List<String[]> batch = partitions.get(i);
@@ -205,12 +205,19 @@ public class UserImporter {
             pool.submit(() -> {
                 int batchFollowers = 0;
                 int batchFollowing = 0;
+                int batchSkipped = 0;
+                int batchFollowersProcessed = 0;
+                int batchFollowingProcessed = 0;
 
                 try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
                      PreparedStatement followerStmt = conn.prepareStatement(
                              "INSERT INTO user_followers (user_id, follower_id) VALUES (?, ?) ON CONFLICT DO NOTHING");
                      PreparedStatement followingStmt = conn.prepareStatement(
-                             "INSERT INTO user_following (user_id, following_id) VALUES (?, ?) ON CONFLICT DO NOTHING")) {
+                             "INSERT INTO user_following (user_id, following_id) VALUES (?, ?) ON CONFLICT DO NOTHING")){
+
+                    conn.setAutoCommit(false);
+                    int batchCountFollowers = 0;
+                    int batchCountFollowing = 0;
 
                     for (String[] cols : batch) {
                         try {
@@ -227,11 +234,35 @@ public class UserImporter {
                                         followerStmt.setInt(1, authorId);
                                         followerStmt.setInt(2, followerId);
                                         try {
-                                            int result = followerStmt.executeUpdate();
-                                            if (result > 0) batchFollowers++;
-                                        } catch (SQLException e) {
-                                            if (!e.getMessage().contains("外键约束")) {
-                                                System.err.println("followers 关系插入错误: " + e.getMessage());
+                                            //int result = followerStmt.executeUpdate();
+                                            followerStmt.addBatch();
+                                            batchCountFollowers++;
+                                            batchFollowersProcessed++;
+
+                                            if (batchCountFollowers % 1000 == 0) {
+                                                int[] results = followerStmt.executeBatch();
+                                                for (int result : results) {
+                                                    if (result > 0) {
+                                                        batchFollowers++;
+                                                    }
+                                                }
+                                                conn.commit();
+                                                followerStmt.clearBatch();
+                                                batchCountFollowers = 0;
+                                            }
+
+
+
+
+                                        } catch (Exception ex) {
+                                            batchSkipped++;
+                                            System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
+                                            try {
+                                                conn.rollback();
+                                                followerStmt.clearBatch();
+                                                batchCountFollowers = 0;
+                                            } catch (SQLException rollbackEx) {
+                                                System.err.println("回滚失败: " + rollbackEx.getMessage());
                                             }
                                         }
                                     }
@@ -246,19 +277,63 @@ public class UserImporter {
                                         followingStmt.setInt(1, authorId);
                                         followingStmt.setInt(2, followingId);
                                         try {
-                                            int result = followingStmt.executeUpdate();
-                                            if (result > 0) batchFollowing++;
-                                        } catch (SQLException e) {
-                                            if (!e.getMessage().contains("外键约束")) {
-                                                System.err.println("关注关系插入错误: " + e.getMessage());
+                                            //int result = followingStmt.executeUpdate();
+                                            followingStmt.addBatch();
+                                            batchCountFollowing++;
+                                            batchFollowersProcessed++;
+
+                                            if (batchCountFollowing % 1000 == 0) {
+                                                int[] results = followingStmt.executeBatch();
+                                                for (int result : results) {
+                                                    if (result > 0) {
+                                                        batchFollowing ++;
+                                                    }
+                                                }
+                                                conn.commit();
+                                                followingStmt.clearBatch();
+                                                batchCountFollowing = 0;
+
+                                            }
+                                        } catch (Exception ex) {
+                                            batchSkipped++;
+                                            System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
+                                            try {
+                                                conn.rollback();
+                                                followerStmt.clearBatch();
+                                                batchCountFollowers = 0;
+                                            } catch (SQLException rollbackEx) {
+                                                System.err.println("回滚失败: " + rollbackEx.getMessage());
                                             }
                                         }
                                     }
+
+                                    if(batchCountFollowers > 0){
+                                        try{
+                                            int[] results = followerStmt.executeBatch();
+                                            for (int result : results) if (result > 0) batchFollowers++;
+                                            conn.commit();
+                                        }catch(SQLException ex){
+                                            System.err.println("最后一批提交失败: " + ex.getMessage());
+                                            conn.rollback();
+                                        }
+                                    }
+                                    if(batchCountFollowing > 0){
+                                        try{
+                                            int[] results = followingStmt.executeBatch();
+                                            for (int result : results) if (result > 0) batchFollowing++;
+                                            conn.commit();
+                                        }catch(SQLException ex){
+                                            System.err.println("最后一批提交失败: " + ex.getMessage());
+                                            conn.rollback();
+                                        }
+                                    }
                                 }
+
                             }
                         }catch (Exception ex) {
                         }
                     }
+
                 } catch (Exception e) {
                     System.err.println("分区 " + partitionIndex + " 关系插入失败: " + e.getMessage());
                 } finally {
