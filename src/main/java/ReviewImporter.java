@@ -29,8 +29,8 @@ public class ReviewImporter {
                     "review_content text, " +
                     "date_submitted date," +
                     "date_modified date," +
-                    "Likes text," +
-                    "FOREIGN KEY(author_id) references users(author_id)" +
+                    "Likes text" +
+                    //"FOREIGN KEY(author_id) references users(author_id)" +
                     //"FOREIGN KEY(recipe_id) references recipes(recipe_id)" +
                     ")";
             stmt.execute(sql);
@@ -41,9 +41,9 @@ public class ReviewImporter {
             String sql = "CREATE TABLE IF NOT EXISTS review_likers (" +
                     "like_id SERIAL PRIMARY KEY, " +
                     "review_id INTEGER, " +
-                    "liker_id INTEGER NOT NULL, " +
+                    "liker_id INTEGER NOT NULL" +
                     //"FOREIGN KEY (review_id) REFERENCES reviews(review_id)," +
-                    "FOREIGN KEY (liker_id) REFERENCES users(author_id)" +
+                    //"FOREIGN KEY (liker_id) REFERENCES users(author_id)" +
                     ")";
             stmt.execute(sql);
             System.out.println("review_likers 表创建完成");
@@ -56,6 +56,7 @@ public class ReviewImporter {
         ExecutorService pool = Executors.newFixedThreadPool(THREAD_COUNT);
         AtomicInteger reviewsInserted = new AtomicInteger(0);
         AtomicInteger skipped = new AtomicInteger(0);
+        long totalStartTime = System.currentTimeMillis();
 
         List<List<String[]>> partitions = new ArrayList<>();
         for (int i = 0; i < rows.size(); i += BATCH_SIZE) {
@@ -71,13 +72,16 @@ public class ReviewImporter {
             List<String[]> batch = partitions.get(i);
 
             pool.submit(() -> {
-                int batchUReviews = 0;
+                int batchReviews = 0;
                 int batchSkipped = 0;
+                int batchReviewProcessed = 0;
+                long threadStartTime = System.currentTimeMillis();
 
                 try (Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-
-                     PreparedStatement reviewStmt = conn.prepareStatement(getInsertSQLReviews());
-                ) {
+                     PreparedStatement reviewStmt = conn.prepareStatement(getInsertSQLReviews())){
+                    conn.setAutoCommit(false);
+                    int batchCount = 0;
+                    long batchStartTime = System.currentTimeMillis();
                     for (String[] cols : batch) {
                         try {
                             List<String> c = Safety.padToExpected(cols,EXPECTED_COLUMNS);
@@ -88,21 +92,56 @@ public class ReviewImporter {
                                 continue;
                             }
                             fillPreparedStatementForReviews(reviewStmt, c);
-                            int userResult = reviewStmt.executeUpdate();
+                            reviewStmt.addBatch();
+                            batchCount++;
+                            batchReviewProcessed++;
+                            //int userResult = reviewStmt.executeUpdate();
 
-                            if (userResult > 0) {
-                                batchUReviews++;
+                            if (batchCount % 1000 == 0) {
+                                int[] results = reviewStmt.executeBatch();
+                                for (int result : results) {
+                                    if (result > 0) {
+                                        batchReviews++;
+                                    }
+                                }
+                                conn.commit();
+                                reviewStmt.clearBatch();
+                                batchCount = 0;
+                                long currentTime = System.currentTimeMillis();
+                                double speed = 1000.0 / ((currentTime - batchStartTime) / 1000.0);
+                                System.out.printf("分区 %d: 已处理 %d 条评论, 速度: %.2f 条/秒%n",
+                                        partitionIndex, batchReviews, speed);
+                                batchStartTime = currentTime;
                             }
-                        } catch (Exception ex) {
-                            batchSkipped++;
-                            //System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
+
+                        }catch(Exception ex){
+                            batchSkipped ++;
+                            System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
+                            try {
+                                conn.rollback();
+                                reviewStmt.clearBatch();
+                                batchCount = 0;
+                            } catch (SQLException rollbackEx) {
+                                System.err.println("回滚失败: " + rollbackEx.getMessage());
+                            }
                         }
                     }
+                    if(batchCount > 0){
+                        try{
+                            int[] results = reviewStmt.executeBatch();
+                            for (int result : results) if (result > 0) batchReviews++;
+                            conn.commit();
+                        }catch(SQLException ex){
+                            System.err.println("最后一批提交失败: " + ex.getMessage());
+                            conn.rollback();
+                        }
+                    }
+
                 } catch (Exception e) {
                     System.err.println("分区 " + partitionIndex + " 数据库连接失败: " + e.getMessage());
                     batchSkipped = batch.size();
                 } finally {
-                    reviewsInserted.addAndGet(batchUReviews);
+                    reviewsInserted.addAndGet(batchReviews);
                     skipped.addAndGet(batchSkipped);
                     latch.countDown();
                 }
@@ -110,6 +149,20 @@ public class ReviewImporter {
         }
         latch.await();
         pool.shutdown();
+
+        long totalEndTime = System.currentTimeMillis();
+        long totalTime = totalEndTime - totalStartTime;
+
+        System.out.println("=========================================");
+        System.out.println("评论数据导入完成统计:");
+        System.out.println("总耗时: " + totalTime + " ms");
+        System.out.println("处理记录: " + reviewsInserted.get() + " 条");
+        System.out.println("跳过记录: " + skipped.get() + " 条");
+        System.out.printf("平均速度: %.2f 条/秒%n", (reviewsInserted.get() * 1000.0) / totalTime);
+        System.out.println("=========================================");
+
+
+
         System.out.println("关系数据导入完成: Reviews = " + reviewsInserted.get());
 
     }
