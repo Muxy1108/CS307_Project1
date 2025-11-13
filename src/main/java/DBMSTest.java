@@ -1,8 +1,6 @@
-import java.io.*;
 import java.sql.*;
-import java.util.*;
 
-public class Test {
+public class DBMSTest {
     private static final String JDBC_URL = "jdbc:postgresql://localhost:5432/postgres";
     private static final String JDBC_USER = "postgres";
     private static final String JDBC_PASS = "Xieyan2005";
