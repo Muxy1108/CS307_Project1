@@ -1,3 +1,5 @@
+package Task4;
+
 import java.sql.*;
 
 public class DBMSTest {
@@ -6,30 +8,25 @@ public class DBMSTest {
     private static final String JDBC_PASS = "Xieyan2005";
 
     public static void main(String[] args) throws Exception {
-        // 直接对现有的users表进行性能测试
         runDBPerformanceTest();
     }
 
     public static void runDBPerformanceTest() throws SQLException {
         System.out.println("开始DBMS性能测试（使用现有users表）...");
 
-        // 测试1: 查询操作
         long selectAllTime = testSelectAll();
         long selectAgeTime = testSelectByAge();
         long selectFollowersTime = testSelectByFollowers();
         long selectGenderTime = testSelectByGender();
 
-        // 测试2: 更新操作
         long updateTime = testUpdate();
 
-        // 测试3: 删除操作（使用临时数据）
         long deleteTime = testDelete();
 
-        // 测试4: 复杂查询
         long complexQueryTime = testComplexQuery();
         long joinQueryTime = testJoinQuery();
 
-        // 输出结果
+
         printResults(selectAllTime, selectAgeTime, selectFollowersTime, selectGenderTime,
                 updateTime, deleteTime, complexQueryTime, joinQueryTime);
     }

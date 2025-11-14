@@ -1,5 +1,9 @@
+package Task4;
+
 import java.io.*;
 import java.util.*;
+
+import Task3.Safety;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
@@ -105,7 +109,7 @@ public class FileIOTest {
         return result;
     }
 
-    // 过滤粉丝数>100的用户
+
     private static List<User> filterByFollowers100(List<User> users) {
         List<User> result = new ArrayList<>();
         for (User user : users) {
@@ -116,7 +120,6 @@ public class FileIOTest {
         return result;
     }
 
-    // 过滤女性用户
     private static List<User> filterFemaleUsers(List<User> users) {
         List<User> result = new ArrayList<>();
         for (User user : users) {
@@ -127,7 +130,7 @@ public class FileIOTest {
         return result;
     }
 
-    // 更新30岁以下用户粉丝数+1
+
     private static List<User> updateAgeUnder30(List<User> users) {
         List<User> result = new ArrayList<>();
         for (User user : users) {
@@ -144,7 +147,7 @@ public class FileIOTest {
         return result;
     }
 
-    // 删除年龄大于50岁的用户
+
     private static List<User> deleteAgeOver50(List<User> users) {
         List<User> result = new ArrayList<>();
         for (User user : users) {
@@ -155,7 +158,7 @@ public class FileIOTest {
         return result;
     }
 
-    // 复杂聚合查询：统计各年龄段的平均粉丝数
+
     private static Map<Integer, Double> complexAggregation(List<User> users) {
         Map<Integer, Integer> ageGroupSum = new HashMap<>();
         Map<Integer, Integer> ageGroupCount = new HashMap<>();
@@ -176,16 +179,15 @@ public class FileIOTest {
         return ageGroupAvg;
     }
 
-    // 复杂连接查询模拟：找出粉丝数高于平均值的女性用户
+
     private static List<User> complexJoinSimulation(List<User> users) {
-        // 先计算平均粉丝数
+
         int totalFollowers = 0;
         for (User user : users) {
             totalFollowers += user.followersCount;
         }
         double avgFollowers = (double) totalFollowers / users.size();
 
-        // 找出粉丝数高于平均值的女性用户
         List<User> result = new ArrayList<>();
         for (User user : users) {
             if (("Female".equalsIgnoreCase(user.gender) || "F".equalsIgnoreCase(user.gender))
@@ -197,28 +199,24 @@ public class FileIOTest {
     }
 
     public static void testFileIO(String csvFile) {
-        // 创建Excel工作簿
+
         Workbook wb = new XSSFWorkbook();
 
-        // 创建性能时间表
         Sheet timeSheet = wb.createSheet("性能时间");
         int timeRowIndex = 0;
 
-        // 创建统计结果表
+
         Sheet statsSheet = wb.createSheet("统计结果");
         int statsRowIndex = 0;
 
-        // 创建聚合结果表
         Sheet aggSheet = wb.createSheet("聚合分析");
         int aggRowIndex = 0;
 
-        // 性能时间表头
         Row timeHeader = timeSheet.createRow(timeRowIndex++);
         timeHeader.createCell(0).setCellValue("操作类型");
         for (int i = 1; i <= 10; i++) timeHeader.createCell(i).setCellValue("第" + i + "轮(ms)");
         timeHeader.createCell(11).setCellValue("平均时间(ms)");
 
-        // 统计结果表头
         Row statsHeader = statsSheet.createRow(statsRowIndex++);
         statsHeader.createCell(0).setCellValue("测试轮次");
         statsHeader.createCell(1).setCellValue("总用户数");
@@ -229,7 +227,6 @@ public class FileIOTest {
         statsHeader.createCell(6).setCellValue("删除50岁以上");
         statsHeader.createCell(7).setCellValue("高粉丝女性");
 
-        // 聚合分析表头
         Row aggHeader = aggSheet.createRow(aggRowIndex++);
         aggHeader.createCell(0).setCellValue("年龄段");
         aggHeader.createCell(1).setCellValue("平均粉丝数");
@@ -253,63 +250,51 @@ public class FileIOTest {
             long start;
             List<User> users;
 
-            // 1. 全表查询（读取所有数据）
             start = System.nanoTime();
             users = readCsv(csvFile);
             opTimes.get("全表读取").add((System.nanoTime() - start) / 1_000_000.0);
 
-            // 2. 全表写入
             start = System.nanoTime();
             writeUsersToFile(users, "output_all.csv");
             opTimes.get("全表写入").add((System.nanoTime() - start) / 1_000_000.0);
 
-            // 3. 查询测试：年龄25-35岁的用户
             start = System.nanoTime();
             List<User> age25_35 = filterByAge25_35(users);
             opTimes.get("查询_年龄25-35").add((System.nanoTime() - start) / 1_000_000.0);
 
-            // 4. 查询测试：粉丝数>100的用户
             start = System.nanoTime();
             List<User> followers100 = filterByFollowers100(users);
             opTimes.get("查询_粉丝数100").add((System.nanoTime() - start) / 1_000_000.0);
 
-            // 5. 查询测试：女性用户
             start = System.nanoTime();
             List<User> femaleUsers = filterFemaleUsers(users);
             opTimes.get("查询_女性用户").add((System.nanoTime() - start) / 1_000_000.0);
 
-            // 6. 更新测试：30岁以下用户粉丝+1
             start = System.nanoTime();
             List<User> updatedUsers = updateAgeUnder30(users);
             int updateCount = users.size() - updatedUsers.size();
             users = updatedUsers;
             opTimes.get("更新_30岁以下").add((System.nanoTime() - start) / 1_000_000.0);
 
-            // 写入更新后的数据
             writeUsersToFile(users, "output_updated.csv");
 
-            // 7. 删除测试：删除所有年龄大于50岁的用户
             start = System.nanoTime();
             List<User> afterDelete = deleteAgeOver50(users);
             int deleteCount = users.size() - afterDelete.size();
             users = afterDelete;
             opTimes.get("删除_50岁以上").add((System.nanoTime() - start) / 1_000_000.0);
 
-            // 写入删除后的数据
             writeUsersToFile(users, "output_deleted.csv");
 
-            // 8. 复杂聚合查询：统计各年龄段的平均粉丝数
             start = System.nanoTime();
             Map<Integer, Double> ageGroupStats = complexAggregation(users);
             opTimes.get("复杂聚合查询").add((System.nanoTime() - start) / 1_000_000.0);
             allAggResults.add(ageGroupStats);
 
-            // 9. 复杂连接查询模拟：找出粉丝数高于平均值的女性用户
             start = System.nanoTime();
             List<User> highFollowersFemale = complexJoinSimulation(users);
             opTimes.get("复杂连接模拟").add((System.nanoTime() - start) / 1_000_000.0);
 
-            // 写入统计结果表
             Row statsRow = statsSheet.createRow(statsRowIndex++);
             statsRow.createCell(0).setCellValue("第" + (run + 1) + "轮");
             statsRow.createCell(1).setCellValue(users.size());
@@ -323,7 +308,6 @@ public class FileIOTest {
             System.out.println("第 " + (run + 1) + " 轮测试完成");
         }
 
-        // 写入性能时间表
         for (Map.Entry<String, List<Double>> entry : opTimes.entrySet()) {
             Row row = timeSheet.createRow(timeRowIndex++);
             row.createCell(0).setCellValue(entry.getKey());
@@ -338,7 +322,6 @@ public class FileIOTest {
             row.createCell(11).setCellValue(String.format("%.6f", sum / times.size()));
         }
 
-        // 写入聚合分析表（取最后一轮的结果）
         if (!allAggResults.isEmpty()) {
             Map<Integer, Double> lastAggResult = allAggResults.get(allAggResults.size() - 1);
             for (Map.Entry<Integer, Double> entry : lastAggResult.entrySet()) {
@@ -348,14 +331,12 @@ public class FileIOTest {
             }
         }
 
-        // 自动调整列宽
         for (int i = 0; i <= 11; i++) {
             timeSheet.autoSizeColumn(i);
             if (i < 8) statsSheet.autoSizeColumn(i);
             if (i < 2) aggSheet.autoSizeColumn(i);
         }
 
-        // 保存Excel文件
         try (FileOutputStream fos = new FileOutputStream("data/FileIO.xlsx")) {
             wb.write(fos);
             System.out.println("✅ 全面测试完成");
@@ -363,7 +344,6 @@ public class FileIOTest {
             e.printStackTrace();
         }
 
-        // 输出最终统计
         System.out.println("\n=== 测试完成 ===");
         System.out.println("结果已保存到: data/FileIO_全面测试结果.xlsx");
         System.out.println("包含三个工作表:");

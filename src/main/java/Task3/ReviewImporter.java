@@ -1,3 +1,5 @@
+package Task3;
+
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,8 +31,8 @@ public class ReviewImporter {
                     "review_content text, " +
                     "date_submitted date," +
                     "date_modified date," +
-                    "Likes text" +
-                    //"FOREIGN KEY(author_id) references users(author_id)" +
+                    "Likes text," +
+                    //"FOREIGN KEY(author_id) references users(author_id)," +
                     //"FOREIGN KEY(recipe_id) references recipes(recipe_id)" +
                     ")";
             stmt.execute(sql);
@@ -41,7 +43,7 @@ public class ReviewImporter {
             String sql = "CREATE TABLE IF NOT EXISTS review_likers (" +
                     "like_id SERIAL PRIMARY KEY, " +
                     "review_id INTEGER, " +
-                    "liker_id INTEGER NOT NULL" +
+                    "liker_id INTEGER NOT NULL," +
                     //"FOREIGN KEY (review_id) REFERENCES reviews(review_id)," +
                     //"FOREIGN KEY (liker_id) REFERENCES users(author_id)" +
                     ")";

@@ -1,16 +1,15 @@
-import com.opencsv.*;
-import java.io.*;
+package Task3;
+
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 
 public class UserImporter {
     private static final int EXPECTED_COLUMNS = 8;
     private static final int BATCH_SIZE = 1000;
-    private static final int THREAD_COUNT = 1;
+    private static final int THREAD_COUNT = 6;
     private static final String JDBC_URL = "jdbc:postgresql://localhost:5432/postgres";
     private static final String JDBC_USER = "postgres";
     private static final String JDBC_PASS = "Xieyan2005";
@@ -251,9 +250,6 @@ public class UserImporter {
                                                 batchCountFollowers = 0;
                                             }
 
-
-
-
                                         } catch (Exception ex) {
                                             batchSkipped++;
                                             System.err.println("分区 " + partitionIndex + " 插入失败: " + ex.getMessage());
@@ -382,7 +378,7 @@ public class UserImporter {
             stmt.executeUpdate("ALTER TABLE users DROP COLUMN user_following");
 
         }
-
     }
+
 
 }

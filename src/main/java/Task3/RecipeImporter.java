@@ -1,6 +1,5 @@
-import com.opencsv.*;
-import com.opencsv.CSVReader;
-import java.io.*;
+package Task3;
+
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -49,7 +48,7 @@ public class RecipeImporter {
                     "recipe_yield text, " +
                     "recipe_instructions TEXT, " +
                     "favorite_users TEXT, " +
-                    "FOREIGN KEY (author_id) REFERENCES users(author_id) " +
+                    "FOREIGN KEY (author_id) REFERENCES users(author_id)" +
                     //"FOREIGN KEY (author_name) REFERENCES users(author_name)" +
                     ")";
             stmt.execute(sql);
