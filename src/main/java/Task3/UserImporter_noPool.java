@@ -6,7 +6,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 
-public class UserImporter {
+public class UserImporter_noPool {
     private static final int EXPECTED_COLUMNS = 8;
     private static final int BATCH_SIZE = 1000;
     private static final int THREAD_COUNT = 6;
