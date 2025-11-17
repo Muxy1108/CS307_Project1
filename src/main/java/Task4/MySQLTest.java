@@ -1,37 +1,36 @@
-package Task3;
+package Task4;
+
+import Task3.Safety;
 
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class UserImporter_MySQL {
+public class MySQLTest {
     private static final int EXPECTED_COLUMNS = 8;
     private static final int BATCH_SIZE = 1000;
     private static final int THREAD_COUNT = 6;
-    // 修改为 MySQL 连接配置
-    private static final String JDBC_URL = "jdbc:mysql://localhost:3306/project_db?useSSL=false&serverTimezone=UTC&rewriteBatchedStatements=true";
-    private static final String JDBC_USER = "root";
-    private static final String JDBC_PASS = "1108"; // 修改为你的 MySQL 密码
 
-    // 简单连接池
+    private static final String JDBC_URL = "jdbc:mysql://localhost:3306/project_db";
+    private static final String JDBC_USER = "root";
+    private static final String JDBC_PASS = "1108";
+
     private static final BlockingQueue<Connection> connectionPool = new LinkedBlockingQueue<>();
     private static boolean poolInitialized = false;
 
-    // 初始化连接池
     private static void initializeConnectionPool() throws SQLException {
         if (poolInitialized) return;
 
         System.out.println("初始化 MySQL 连接池，大小: " + THREAD_COUNT);
         for (int i = 0; i < THREAD_COUNT; i++) {
             Connection conn = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASS);
-            conn.setAutoCommit(false);  // 统一设置不自动提交
+            conn.setAutoCommit(false);
             connectionPool.offer(conn);
         }
         poolInitialized = true;
     }
 
-    // 从连接池获取连接
     private static Connection getConnectionFromPool() throws InterruptedException {
         return connectionPool.take();
     }
