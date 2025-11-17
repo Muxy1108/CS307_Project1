@@ -1,5 +1,7 @@
 package Task3;
 
+import Task4.MySQLTest;
+
 import java.util.List;
 
 public class Main {
@@ -14,10 +16,22 @@ public class Main {
             e.printStackTrace();
         }
 
-        //import users and user_follower/following
-
         String UsercsvPath = "data/user.csv";
         List<String[]> userrows = CSVReader.ReadCSV(UsercsvPath,8);
+        try {
+            MySQLTest.createUserTable();
+            MySQLTest.importUserData(userrows);
+            MySQLTest.importUserRelated(userrows);
+            MySQLTest.dropUserColumns();
+        }catch (Exception e) {
+            System.err.println("users 导入失败: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        //import users and user_follower/following
+
+        //String UsercsvPath = "data/user.csv";
+        //List<String[]> userrows = CSVReader.ReadCSV(UsercsvPath,8);
         try {
             UserImporter.createUserTable();
             UserImporter.importUserData(userrows);
@@ -55,8 +69,5 @@ public class Main {
             System.err.println("reviews 导入失败: " + e.getMessage());
             e.printStackTrace();
         }
-
-
-
     }
 }
